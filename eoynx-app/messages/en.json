@@ -1,0 +1,75 @@
+{
+  "common": {
+    "home": "Home",
+    "back": "← Back to Home",
+    "search": "Search",
+    "settings": "Settings",
+    "signIn": "Sign in",
+    "signOut": "Sign out"
+  },
+  "home": {
+    "chips": {
+      "seoFirst": "SEO-first",
+      "publicProfiles": "Public profiles",
+      "shareCards": "9:16 share cards",
+      "verifiedValue": "Verified value"
+    },
+    "hero": {
+      "title1": "Show your collection.",
+      "title2": "Let the internet find it.",
+      "description": "EOYNX is a public-first luxury collection community. Profiles and items are indexable. Unlisted stays link-only. Private stays private."
+    },
+    "cta": {
+      "viewProfile": "View a profile",
+      "viewItem": "View an item"
+    },
+    "stats": {
+      "categories": "Categories",
+      "categoriesValue": "Luxury · Accessories · Cars · Real Estate",
+      "visibility": "Visibility",
+      "visibilityValue": "Public / Unlisted / Private",
+      "verified": "Verified",
+      "verifiedValue": "Median + range + sources",
+      "share": "Share",
+      "shareValue": "Percentile + link"
+    },
+    "debug": {
+      "title": "Supabase connection",
+      "description": "Debug page (noindex). Confirm env wiring."
+    }
+  },
+  "profile": {
+    "bio": "Bio",
+    "items": "Items",
+    "noItems": "No items registered yet."
+  },
+  "item": {
+    "description": "Description",
+    "noDescription": "No description",
+    "owner": "Owner",
+    "viewDetails": "View Details",
+    "public": "Public",
+    "unlisted": "Unlisted"
+  },
+  "search": {
+    "title": "Search",
+    "subtitle": "People + items in one screen.",
+    "placeholder": "Search people or items",
+    "go": "Go",
+    "people": "People",
+    "items": "Items",
+    "noResults": "No results found.",
+    "error": "Error loading results."
+  },
+  "auth": {
+    "title": "Sign in",
+    "subtitle": "Google + email/password."
+  },
+  "settings": {
+    "title": "Settings",
+    "subtitle": "Theme: System / Light / Dark.",
+    "theme": "Theme (already in top bar)",
+    "dmSettings": "DM settings (followers-only toggle)",
+    "privacy": "Privacy + blocks"
+  }
+}

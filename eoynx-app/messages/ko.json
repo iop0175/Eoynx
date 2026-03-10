@@ -1,0 +1,75 @@
+{
+  "common": {
+    "home": "홈",
+    "back": "← 홈으로",
+    "search": "검색",
+    "settings": "설정",
+    "signIn": "로그인",
+    "signOut": "로그아웃"
+  },
+  "home": {
+    "chips": {
+      "seoFirst": "SEO 최적화",
+      "publicProfiles": "공개 프로필",
+      "shareCards": "9:16 공유 카드",
+      "verifiedValue": "검증된 가치"
+    },
+    "hero": {
+      "title1": "컬렉션을 보여주세요.",
+      "title2": "인터넷이 찾아올 거예요.",
+      "description": "EOYNX는 공개 우선 럭셔리 컬렉션 커뮤니티입니다. 프로필과 아이템이 검색 엔진에 노출됩니다. 비공개 링크는 링크로만, 비공개는 완전 비공개."
+    },
+    "cta": {
+      "viewProfile": "프로필 보기",
+      "viewItem": "아이템 보기"
+    },
+    "stats": {
+      "categories": "카테고리",
+      "categoriesValue": "럭셔리 · 액세서리 · 자동차 · 부동산",
+      "visibility": "공개 설정",
+      "visibilityValue": "공개 / 비공개 링크 / 비공개",
+      "verified": "검증",
+      "verifiedValue": "중앙값 + 범위 + 출처",
+      "share": "공유",
+      "shareValue": "백분위 + 링크"
+    },
+    "debug": {
+      "title": "Supabase 연결",
+      "description": "디버그 페이지 (검색 제외). 환경 설정 확인."
+    }
+  },
+  "profile": {
+    "bio": "소개",
+    "items": "아이템",
+    "noItems": "아직 등록된 아이템이 없습니다."
+  },
+  "item": {
+    "description": "설명",
+    "noDescription": "설명 없음",
+    "owner": "소유자",
+    "viewDetails": "상세 보기",
+    "public": "공개",
+    "unlisted": "비공개 링크"
+  },
+  "search": {
+    "title": "검색",
+    "subtitle": "사람 + 아이템을 한 화면에서.",
+    "placeholder": "사람 또는 아이템 검색",
+    "go": "검색",
+    "people": "사람",
+    "items": "아이템",
+    "noResults": "검색 결과가 없습니다.",
+    "error": "결과를 불러오는 중 오류가 발생했습니다."
+  },
+  "auth": {
+    "title": "로그인",
+    "subtitle": "Google + 이메일/비밀번호"
+  },
+  "settings": {
+    "title": "설정",
+    "subtitle": "테마: 시스템 / 라이트 / 다크",
+    "theme": "테마 (상단 바에 있음)",
+    "dmSettings": "DM 설정 (팔로워 전용 토글)",
+    "privacy": "개인정보 + 차단"
+  }
+}
