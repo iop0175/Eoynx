@@ -4,6 +4,7 @@ import * as React from "react";
 import Link from "next/link";
 import { Send, Trash2, MoreHorizontal } from "lucide-react";
 import { addComment, deleteComment, type CommentWithUser } from "@/app/actions/comments";
+import { Avatar } from "@/components/ui/optimized-image";
 
 type CommentsProps = {
   itemId: string;
@@ -153,22 +154,13 @@ export function Comments({
               >
                 <div className="flex gap-3">
                   {/* Avatar */}
-                  <Link
-                    href={`/u/${handle}`}
-                    className="h-8 w-8 flex-shrink-0 overflow-hidden rounded-full bg-neutral-200 dark:bg-neutral-800"
-                  >
-                    {comment.profiles?.avatar_url ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img
-                        src={comment.profiles.avatar_url}
-                        alt={displayName}
-                        className="h-full w-full object-cover"
-                      />
-                    ) : (
-                      <div className="flex h-full w-full items-center justify-center text-xs text-neutral-500">
-                        {displayName.charAt(0).toUpperCase()}
-                      </div>
-                    )}
+                  <Link href={`/u/${handle}`}>
+                    <Avatar
+                      src={comment.profiles?.avatar_url}
+                      alt={displayName}
+                      size="sm"
+                      fallbackInitial={displayName.charAt(0).toUpperCase()}
+                    />
                   </Link>
 
                   {/* Content */}

@@ -1,0 +1,44 @@
+{
+  "expo": {
+    "name": "eoynx-mobile",
+    "slug": "eoynx-mobile",
+    "scheme": "eoynxmobile",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#ffffff"
+    },
+    "ios": {
+      "supportsTablet": true
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#E6F4FE",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false,
+      "package": "com.anonymous.eoynxmobile"
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      "expo-notifications",
+      "expo-secure-store",
+      "expo-web-browser",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Allow EOYNX to access your photos.",
+          "cameraPermission": "Allow EOYNX to use your camera."
+        }
+      ]
+    ]
+  }
+}

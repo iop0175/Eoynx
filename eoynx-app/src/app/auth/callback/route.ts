@@ -28,5 +28,5 @@ export async function GET(request: Request) {
 
   // code가 없으면 클라이언트 측 핸들러 페이지로 이동
   // (이 페이지가 URL hash의 토큰을 처리함)
-  return NextResponse.redirect(`${origin}/auth/callback/client`);
+  return NextResponse.redirect(`${origin}/auth/callback/handle`);
 }

@@ -17,6 +17,7 @@ export interface Database {
           display_name: string | null;
           bio: string | null;
           avatar_url: string | null;
+          dm_open: boolean;
           created_at: string;
           updated_at: string;
         };
@@ -26,6 +27,7 @@ export interface Database {
           display_name?: string | null;
           bio?: string | null;
           avatar_url?: string | null;
+          dm_open?: boolean;
           created_at?: string;
           updated_at?: string;
         };
@@ -35,6 +37,7 @@ export interface Database {
           display_name?: string | null;
           bio?: string | null;
           avatar_url?: string | null;
+          dm_open?: boolean;
           updated_at?: string;
         };
       };

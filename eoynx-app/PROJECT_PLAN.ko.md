@@ -128,6 +128,12 @@
 - 피드: 공개 아이템 피드
 - 컬렉션: 목록 + 상세 페이지
 
+### ✅ 실시간 동기화 (신규)
+- WEB DM 대화방: 새 메시지 INSERT 즉시 수신 후 화면 갱신
+- DM Inbox: 스레드/메시지 변경 실시간 감지 후 목록/안읽음 카운트 갱신
+- Feed 좋아요: `likes` 테이블 변경 시 카드별 좋아요 수/내 좋아요 상태 즉시 반영
+- 알림: 기존 실시간 구독 유지 (기존 동작 보존)
+
 ### ✅ 아이템 CRUD (완료)
 - **Create**: 단일 폼 추가 페이지 + 멀티 이미지 업로드 (대표 이미지 + 서브 이미지)
 - **Read**: 이미지 슬라이더가 있는 아이템 상세 페이지
@@ -164,30 +170,31 @@
 
 ## 7) 해야 할 일 (To-Do List)
 
-### 우선순위 1 — 소셜 기능
-- [ ] 팔로우/언팔로우 기능 (followers 테이블 insert/delete)
-- [ ] 좋아요 기능 (아이템)
-- [ ] 북마크/저장 기능 (아이템)
-- [ ] 팔로워/팔로잉 수 실시간 업데이트
+### 우선순위 1 — 소셜 기능 ✅
+- [x] 팔로우/언팔로우 기능 (followers 테이블 insert/delete)
+- [x] 좋아요 기능 (아이템)
+- [x] 북마크/저장 기능 (아이템)
+- [x] 팔로워/팔로잉 수 실시간 업데이트
 
-### 우선순위 2 — SEO & 마케팅
-- [ ] 프로필/아이템 OG 이미지
-- [ ] 메타 태그 및 설명 설정
-- [ ] sitemap.xml 생성
-- [ ] robots.txt 설정
-- [ ] 랜딩 페이지 (/) 디자인
+### 우선순위 2 — SEO & 마케팅 ✅
+- [x] 프로필/아이템 OG 이미지
+- [x] 메타 태그 및 설명 설정
+- [x] sitemap.xml 생성
+- [x] robots.txt 설정
+- [ ] 랜딩 페이지 (/) 디자인 (선택)
 
-### 우선순위 3 — 컬렉션
-- [ ] 컬렉션 생성 플로우
-- [ ] 아이템을 컬렉션에 추가
-- [ ] 아이템이 포함된 컬렉션 상세 페이지
-- [ ] 공개/비공개 컬렉션 토글
+### 우선순위 3 — 컬렉션 ✅
+- [x] 컬렉션 생성 플로우
+- [x] 아이템을 컬렉션에 추가
+- [x] 아이템이 포함된 컬렉션 상세 페이지
+- [x] 공개/비공개 컬렉션 토글
 
 ### 우선순위 4 — 댓글 ✅
 - [x] 데이터베이스에 댓글 모델
 - [x] 아이템 상세에서 댓글 목록
 - [x] 댓글 추가 기능
 - [x] 댓글 수 표시
+- [x] 댓글 좋아요 (좋아요 수 표시)
 
 ### 우선순위 5 — DM 시스템 ✅
 - [x] 실제 메시지 스레드 (스켈레톤 아님)
@@ -200,13 +207,109 @@
 - [x] 새 팔로워 알림
 - [x] 좋아요/댓글 알림
 - [x] DM 알림
+- [x] 네비게이션 바 알림 배지
+
+### 우선순위 7 — 프로필 커스텀 ✅
+- [x] 핸들(고유 ID) 변경 가능 + 중복 검사
+- [x] 표시 이름 수정 가능 (중복 허용)
+- [x] 실시간 핸들 사용 가능 여부 확인
+
+### 우선순위 8 — 피드 개선 ✅
+- [x] 피드 카드 드롭다운 (설명, 브랜드, 카테고리)
+- [x] 피드 카드 내 인라인 댓글
+- [x] 상위 3개 댓글 미리보기 (좋아요 순 정렬)
+- [x] 피드에서 바로 댓글 좋아요/취소
+
+### 우선순위 9 — 퍼센타일 시스템 ✅
+- [x] 컬렉션 가치 기반 퍼센타일 계산 로직
+- [x] 카테고리별 퍼센타일 (Luxury, Accessories, Cars)
+- [x] 프로필 페이지 퍼센타일 표시 + 카테고리 전환
+- [x] 값이 없을 때 아이템 수 기반 폴백
+
+### 우선순위 10 — 신고/차단 ✅
+- [x] 사용자 신고 기능 (ReportModal)
+- [x] 사용자 차단/차단해제
+- [x] 차단된 사용자 목록 (/settings/blocked)
+- [x] 차단된 사용자 피드/댓글 숨기기
+
+### 우선순위 11 — 팔로워/팔로잉 페이지 ✅
+- [x] 팔로워 목록 페이지 (/u/[handle]/followers)
+- [x] 팔로잉 목록 페이지 (/u/[handle]/following)
+- [x] 팔로잉 페이지에서 언팔로우 기능
+
+### 우선순위 12 — DM 설정 ✅
+- [x] dm_open 프로필 설정 (Open/Request Required)
+- [x] 설정 페이지에서 DM 모드 전환
+
+### 우선순위 13 — 무한 스크롤 ✅
+- [x] 피드에 무한 스크롤 (이미 구현됨)
+- [x] 검색 아이템에 무한 스크롤
+- [x] 팔로워 목록에 무한 스크롤
+- [x] 팔로잉 목록에 무한 스크롤
+
+### 우선순위 14 — 개발 환경 ✅
+- [x] 더미 아이템 데이터 (supabase/seed_items.sql)
+- [x] Unsplash 이미지 도메인 설정 (next.config.ts)
+
+### 우선순위 15 — 검색 개선 ✅
+- [x] 정렬 옵션 (최신순/오래된순/좋아요순)
+- [x] 카테고리 필터 (전체/럭셔리/액세서리/자동차/부동산)
+- [x] 브랜드 검색 포함
+- [x] 필터 패널 UI
+
+### 우선순위 16 — 프로필 아이템 정렬 ✅
+- [x] 정렬 옵션 (최신순/오래된순/좋아요순)
+- [x] 정렬 드롭다운 UI
+- [x] 좋아요 수 포함 아이템 조회 API
+
+### 우선순위 17 — 팔로워 제거 기능 ✅
+- [x] removeFollower 서버 액션 (social.ts)
+- [x] 팔로워 페이지에서 isOwner일 때 X 버튼 표시
+- [x] 제거 확인 및 로딩 상태 UI
+- [x] i18n 번역 (ko/en)
+
+### 우선순위 18 — 이미지 최적화 ✅
+- [x] image-slider.tsx: raw `<img>` → `next/image` (WebP/AVIF, lazy loading, sizes 적용)
+- [x] item-card.tsx: raw `<img>` → `next/image` (width/height 명시)
+- [x] navbar.tsx: 아바타 `<img>` → `Avatar` 컴포넌트 (데스크톱/모바일)
+- [x] comments.tsx: 아바타 `<img>` → `Avatar` 컴포넌트
+- [x] blocked-client.tsx: 아바타 `<img>` → `Avatar` 컴포넌트
+- [x] dm-inbox-client.tsx: 아바타 `<img>` → `Avatar` 컴포넌트
+- [x] dm-thread-client.tsx: `Image` 직접 사용 → `Avatar` 컴포넌트
+- [x] dm-requests-client.tsx: `Image` 직접 사용 → `Avatar` 컴포넌트
+- [x] notifications-client.tsx: 아바타 → `Avatar`, 아이템 썸네일 `sizes` 추가
+
+### 우선순위 19 — 에러 바운더리 & 404 ✅
+- [x] 공통 ErrorFallback 컴포넌트 (error-fallback.tsx)
+- [x] 글로벌 error.tsx (루트 에러 바운더리)
+- [x] 글로벌 not-found.tsx (404 페이지)
+- [x] 라우트별 error.tsx (feed, search, dm, notifications, profile, item, settings)
+- [x] i18n 번역 키 (error/notFound)
+
+### 우선순위 20 — 스켈레톤 로더 ✅
+- [x] 공통 스켈레톤 컴포넌트 (skeleton.tsx: SkeletonBox, SkeletonCircle, SkeletonText, FeedCardSkeleton, ProfileItemSkeleton, DMThreadSkeleton, NotificationSkeleton, PillTabsSkeleton)
+- [x] 라우트별 loading.tsx (feed, search, dm, notifications, profile, item, settings)
+
+### 우선순위 21 — 실시간 반영 ✅
+- [x] WEB DM 대화방: 새 메시지 INSERT 즉시 수신/렌더링
+- [x] DM Inbox: 스레드/메시지 변경 실시간 감지로 목록/안읽음 갱신
+- [x] Feed 좋아요: `likes` 변경 시 좋아요 수/내 좋아요 상태 즉시 동기화
+- [x] 알림: 기존 실시간 구독 유지(회귀 없이 동작)
+
+### 남은 작업 (Remaining Tasks)
+- [ ] **랜딩 페이지**: 마케팅 랜딩 페이지 디자인 (/)
+- [ ] **공유 카드**: SNS용 9:16 공유 카드 생성
+- [ ] **푸시 알림**: FCM/APNs로 실시간 푸시
 
 ### 추후 (Post-MVP)
-- [ ] 퍼센타일 랭킹 시스템
 - [ ] 공유 카드 (9:16 포맷)
-- [ ] 푸시 알림
+- [ ] 푸시 알림 (FCM/APNs)
 - [ ] 네이티브 앱 (Expo)
 - [ ] 출처가 있는 검증된 가치 시스템
+- [ ] 관리자 대시보드
+- [ ] 분석 연동
+- [ ] WebSocket 실시간 채팅
+- [ ] 이미지 CDN 연동
 
 ## 8) 마일스톤(권장)
 

@@ -59,6 +59,7 @@ create table public.profiles (
   display_name text,
   bio text,
   avatar_url text,
+  dm_open boolean not null default true,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );

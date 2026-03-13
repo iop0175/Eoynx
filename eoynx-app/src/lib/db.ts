@@ -6,6 +6,7 @@ export type ProfileRow = {
   display_name: string | null;
   bio: string | null;
   avatar_url: string | null;
+  dm_open?: boolean;
   created_at: string;
 };
 

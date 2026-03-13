@@ -1,16 +1,22 @@
 import { redirect } from "next/navigation";
+import type { Metadata } from "next";
 import { NOINDEX } from "@/lib/robots";
 import { PageShell } from "@/components/page-shell";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getNotifications } from "@/app/actions/notifications";
 import { NotificationsClient } from "./notifications-client";
+import { getTranslations } from "next-intl/server";
 
-export const metadata = {
-  title: "알림",
-  robots: NOINDEX,
-};
+export async function generateMetadata(): Promise<Metadata> {
+  const t = await getTranslations("notifications");
+  return {
+    title: t("title"),
+    robots: NOINDEX,
+  };
+}
 
 export default async function NotificationsPage() {
+  const t = await getTranslations("notifications");
   const supabase = await createSupabaseServerClient();
   const { data: { user } } = await supabase.auth.getUser();
 
@@ -21,8 +27,8 @@ export default async function NotificationsPage() {
   const { notifications } = await getNotifications();
 
   return (
-    <PageShell title="알림" subtitle="새로운 활동을 확인하세요">
-      <NotificationsClient initialNotifications={notifications} />
+    <PageShell title={t("title")} subtitle={t("subtitle")}>
+      <NotificationsClient initialNotifications={notifications} currentUserId={user.id} />
     </PageShell>
   );
 }

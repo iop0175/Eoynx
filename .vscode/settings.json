@@ -1,0 +1,5 @@
+{
+    "tasksync.autopilot": false,
+    "tasksync.sessionWarningHours": 0,
+    "tasksync.responseTimeout": "240"
+}

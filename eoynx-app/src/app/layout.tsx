@@ -5,14 +5,19 @@ import { ThemeProvider } from "@/components/theme-provider";
 import { NextIntlClientProvider } from 'next-intl';
 import { getLocale, getMessages } from 'next-intl/server';
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { EncryptionKeyInit } from "@/components/encryption-key-init";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
   subsets: ["latin"],
+  display: "swap",
+  preload: true,
 });
 const geistMono = Geist_Mono({
   variable: "--font-geist-mono",
   subsets: ["latin"],
+  display: "swap",
+  preload: true,
 });
 
 export const metadata: Metadata = {
@@ -50,7 +55,10 @@ export default async function RootLayout({
     <html lang={locale} suppressHydrationWarning>
       <body className={`${geistSans.variable} ${geistMono.variable} antialiased`}>
         <NextIntlClientProvider messages={messages}>
-          <ThemeProvider user={profile}>{children}</ThemeProvider>
+          <ThemeProvider user={profile}>
+            <EncryptionKeyInit userId={user?.id ?? null} />
+            {children}
+          </ThemeProvider>
         </NextIntlClientProvider>
       </body>
     </html>

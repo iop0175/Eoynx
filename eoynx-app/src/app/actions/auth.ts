@@ -55,8 +55,8 @@ export async function signInWithGoogle(): Promise<AuthResult> {
   const { data, error } = await supabase.auth.signInWithOAuth({
     provider: "google",
     options: {
-      // redirectTo를 /auth로 변경하여 hash fragment가 유지되도록 함
-      redirectTo: `${process.env.NEXT_PUBLIC_SITE_URL}/auth`,
+      // OAuth callback must hit the callback route for code exchange/session setup.
+      redirectTo: `${process.env.NEXT_PUBLIC_SITE_URL}/auth/callback`,
     },
   });
 

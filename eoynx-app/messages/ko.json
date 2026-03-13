@@ -41,7 +41,12 @@
   "profile": {
     "bio": "소개",
     "items": "아이템",
-    "noItems": "아직 등록된 아이템이 없습니다."
+    "noItems": "아직 등록된 아이템이 없습니다.",
+    "sortBy": "정렬",
+    "sortLatest": "최신순",
+    "sortOldest": "오래된순",
+    "sortLikes": "좋아요순",
+    "noItemsInCategory": "이 카테고리에 아이템이 없습니다."
   },
   "item": {
     "description": "설명",
@@ -59,7 +64,19 @@
     "people": "사람",
     "items": "아이템",
     "noResults": "검색 결과가 없습니다.",
-    "error": "결과를 불러오는 중 오류가 발생했습니다."
+    "error": "결과를 불러오는 중 오류가 발생했습니다.",
+    "filters": "필터",
+    "sortBy": "정렬",
+    "category": "카테고리",
+    "sortLatest": "최신순",
+    "sortOldest": "오래된순",
+    "sortLikes": "좋아요순",
+    "categoryAll": "전체",
+    "categoryLuxury": "럭셔리",
+    "categoryAccessories": "액세서리",
+    "categoryCars": "자동차",
+    "categoryRealEstate": "부동산",
+    "clearFilters": "필터 초기화"
   },
   "auth": {
     "title": "로그인",
@@ -68,8 +85,81 @@
   "settings": {
     "title": "설정",
     "subtitle": "테마: 시스템 / 라이트 / 다크",
+    "language": "언어",
+    "profileSection": "프로필",
+    "editProfile": "프로필 수정",
+    "accountSection": "계정",
+    "emailLabel": "이메일",
+    "otherSection": "기타",
     "theme": "테마 (상단 바에 있음)",
     "dmSettings": "DM 설정 (팔로워 전용 토글)",
-    "privacy": "개인정보 + 차단"
+    "privacy": "개인정보 + 차단",
+    "signIn": "로그인",
+    "signOut": "로그아웃"
+  },
+  "notifications": {
+    "title": "알림",
+    "subtitle": "새로운 활동을 확인하세요",
+    "clearConfirm": "모든 알림을 삭제하시겠습니까?",
+    "someone": "누군가",
+    "itemFallback": "아이템",
+    "newNotification": "새 알림",
+    "empty": "알림이 없습니다",
+    "unreadCount": "읽지 않은 알림 {count}개",
+    "allRead": "모든 알림을 읽었습니다",
+    "markAllRead": "모두 읽음",
+    "clearAll": "모두 삭제",
+    "markRead": "읽음 표시",
+    "delete": "삭제",
+    "justNow": "방금",
+    "minutesAgo": "{count}분 전",
+    "hoursAgo": "{count}시간 전",
+    "daysAgo": "{count}일 전",
+    "types": {
+      "follow": "{actor}님이 회원님을 팔로우했습니다",
+      "like": "{actor}님이 \"{item}\"을(를) 좋아합니다",
+      "comment": "{actor}님이 \"{item}\"에 댓글을 달았습니다",
+      "dm": "{actor}님이 메시지를 보냈습니다",
+      "dmRequest": "{actor}님이 메시지 요청을 보냈습니다"
+    }
+  },
+  "dm": {
+    "title": "메시지",
+    "subtitle": "받은 편지함",
+    "requests": "요청",
+    "emptyTitle": "아직 메시지가 없습니다",
+    "emptyDescription": "프로필에서 Message 버튼을 눌러 대화를 시작하세요",
+    "justNow": "방금",
+    "minutesAgo": "{count}분",
+    "hoursAgo": "{count}시간",
+    "daysAgo": "{count}일"
+  },
+  "followers": {
+    "title": "팔로워",
+    "subtitle": "@{handle}님의 팔로워",
+    "backToProfile": "프로필로 돌아가기",
+    "noFollowers": "아직 팔로워가 없습니다",
+    "remove": "삭제",
+    "removing": "삭제 중..."
+  },
+  "following": {
+    "title": "팔로잉",
+    "subtitle": "@{handle}님이 팔로잉하는 사람",
+    "backToProfile": "프로필로 돌아가기",
+    "noFollowing": "아직 팔로잉하는 사람이 없습니다",
+    "unfollow": "언팔로우",
+    "unfollowing": "해제 중..."
+  },
+  "error": {
+    "title": "문제가 발생했습니다",
+    "description": "예기치 않은 오류가 발생했습니다. 다시 시도해주세요.",
+    "retry": "다시 시도",
+    "goHome": "홈으로 돌아가기"
+  },
+  "notFound": {
+    "title": "페이지를 찾을 수 없습니다",
+    "description": "요청하신 페이지가 존재하지 않거나 이동되었습니다.",
+    "goHome": "홈으로 돌아가기",
+    "goBack": "이전 페이지"
   }
 }

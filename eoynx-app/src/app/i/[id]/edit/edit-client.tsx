@@ -5,6 +5,9 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { X, Plus, Star } from "lucide-react";
 import { Segmented } from "@/components/ui/segmented";
+import { Alert } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import { UI_FIELD_LABEL, UI_INPUT_BASE } from "@/components/ui/ui-classes";
 import { updateItem, deleteItem, uploadItemImage } from "@/app/actions/item";
 import type { ItemWithOwner } from "@/lib/db-item";
 
@@ -196,8 +199,7 @@ export default function EditClientPage({ item }: EditClientPageProps) {
     private: "Private: only visible to you",
   };
 
-  const inputClass =
-    "w-full rounded-xl border border-neutral-200 bg-white px-4 py-3 text-sm outline-none placeholder:text-neutral-400 focus:border-neutral-300 dark:border-neutral-800 dark:bg-black dark:placeholder:text-neutral-600 dark:focus:border-neutral-700";
+  const inputClass = UI_INPUT_BASE;
 
   return (
     <div className="mx-auto w-full max-w-3xl px-4 py-10">
@@ -224,15 +226,15 @@ export default function EditClientPage({ item }: EditClientPageProps) {
       {/* Content */}
       <div className="rounded-2xl border border-neutral-200 bg-white p-5 dark:border-neutral-800 dark:bg-neutral-950">
         {error && (
-          <div className="mb-4 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-800 dark:border-red-900/40 dark:bg-red-950/30 dark:text-red-200">
+          <Alert tone="error" className="mb-4">
             {error}
-          </div>
+          </Alert>
         )}
 
         <div className="grid gap-4">
           {/* Image Management */}
           <div>
-            <label className="mb-1.5 block text-xs text-neutral-500 dark:text-neutral-400">
+            <label className={UI_FIELD_LABEL}>
               Images ({imageUrls.length}/5)
             </label>
             
@@ -335,7 +337,7 @@ export default function EditClientPage({ item }: EditClientPageProps) {
 
           {/* Category */}
           <div>
-            <label className="mb-1.5 block text-xs text-neutral-500 dark:text-neutral-400">
+            <label className={UI_FIELD_LABEL}>
               Category
             </label>
             <select
@@ -354,7 +356,7 @@ export default function EditClientPage({ item }: EditClientPageProps) {
 
           {/* Brand */}
           <div>
-            <label className="mb-1.5 block text-xs text-neutral-500 dark:text-neutral-400">
+            <label className={UI_FIELD_LABEL}>
               Brand
             </label>
             <input
@@ -367,7 +369,7 @@ export default function EditClientPage({ item }: EditClientPageProps) {
 
           {/* Item name */}
           <div>
-            <label className="mb-1.5 block text-xs text-neutral-500 dark:text-neutral-400">
+            <label className={UI_FIELD_LABEL}>
               Item name
             </label>
             <input
@@ -381,7 +383,7 @@ export default function EditClientPage({ item }: EditClientPageProps) {
 
           {/* Description */}
           <div>
-            <label className="mb-1.5 block text-xs text-neutral-500 dark:text-neutral-400">
+            <label className={UI_FIELD_LABEL}>
               Description
             </label>
             <textarea
@@ -395,7 +397,7 @@ export default function EditClientPage({ item }: EditClientPageProps) {
 
           {/* Hashtags */}
           <div>
-            <label className="mb-1.5 block text-xs text-neutral-500 dark:text-neutral-400">
+            <label className={UI_FIELD_LABEL}>
               Hashtags
             </label>
             <input
@@ -408,7 +410,7 @@ export default function EditClientPage({ item }: EditClientPageProps) {
 
           {/* Price */}
           <div>
-            <label className="mb-1.5 block text-xs text-neutral-500 dark:text-neutral-400">
+            <label className={UI_FIELD_LABEL}>
               Price
             </label>
             <input
@@ -421,7 +423,7 @@ export default function EditClientPage({ item }: EditClientPageProps) {
 
           {/* Visibility */}
           <div>
-            <label className="mb-1.5 block text-xs text-neutral-500 dark:text-neutral-400">
+            <label className={UI_FIELD_LABEL}>
               Visibility
             </label>
             <Segmented
@@ -439,47 +441,48 @@ export default function EditClientPage({ item }: EditClientPageProps) {
           </div>
 
           {/* Save Button */}
-          <button
-            type="button"
+          <Button
             onClick={handleSave}
             disabled={!title.trim() || loading}
-            className="w-full rounded-xl bg-violet-600 py-3.5 text-sm font-semibold text-white transition-colors hover:bg-violet-500 disabled:opacity-50 dark:bg-violet-500 dark:hover:bg-violet-400"
+            variant="primary"
+            size="lg"
+            fullWidth
           >
             {loading ? "Saving..." : "Save changes"}
-          </button>
+          </Button>
 
           {/* Delete Section */}
           <div className="border-t border-neutral-200 pt-4 dark:border-neutral-800">
             {!showDeleteConfirm ? (
-              <button
-                type="button"
+              <Button
                 onClick={() => setShowDeleteConfirm(true)}
-                className="w-full rounded-xl border border-red-200 py-3 text-sm font-medium text-red-600 transition-colors hover:bg-red-50 dark:border-red-900/40 dark:text-red-400 dark:hover:bg-red-950/30"
+                variant="secondary"
+                className="w-full border-red-200 text-red-600 hover:bg-red-50 dark:border-red-900/40 dark:text-red-400 dark:hover:bg-red-950/30"
               >
                 Delete item
-              </button>
+              </Button>
             ) : (
               <div className="space-y-2">
                 <p className="text-center text-sm text-neutral-600 dark:text-neutral-400">
                   Are you sure? This cannot be undone.
                 </p>
                 <div className="flex gap-2">
-                  <button
-                    type="button"
+                  <Button
                     onClick={() => setShowDeleteConfirm(false)}
                     disabled={loading}
-                    className="flex-1 rounded-xl border border-neutral-200 py-3 text-sm font-medium transition-colors hover:bg-neutral-50 dark:border-neutral-800 dark:hover:bg-neutral-900"
+                    variant="secondary"
+                    className="flex-1 py-3"
                   >
                     Cancel
-                  </button>
-                  <button
-                    type="button"
+                  </Button>
+                  <Button
                     onClick={handleDelete}
                     disabled={loading}
-                    className="flex-1 rounded-xl bg-red-600 py-3 text-sm font-semibold text-white transition-colors hover:bg-red-500 disabled:opacity-50"
+                    variant="danger"
+                    className="flex-1 py-3 text-sm font-semibold"
                   >
                     {loading ? "Deleting..." : "Delete"}
-                  </button>
+                  </Button>
                 </div>
               </div>
             )}

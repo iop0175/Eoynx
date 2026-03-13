@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import Image from "next/image";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 
 type ImageSliderProps = {
@@ -33,12 +34,13 @@ export function ImageSlider({ images, alt }: ImageSliderProps) {
 
   if (images.length === 1) {
     return (
-      <div className="overflow-hidden rounded-xl border border-neutral-200 dark:border-neutral-800">
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
+      <div className="relative overflow-hidden rounded-xl border border-neutral-200 dark:border-neutral-800 h-72">
+        <Image
           src={images[0]}
           alt={alt}
-          className="h-72 w-full object-cover"
+          fill
+          className="object-cover"
+          sizes="(max-width: 768px) 100vw, 768px"
         />
       </div>
     );
@@ -47,12 +49,13 @@ export function ImageSlider({ images, alt }: ImageSliderProps) {
   return (
     <div className="relative">
       {/* Main Image */}
-      <div className="overflow-hidden rounded-xl border border-neutral-200 dark:border-neutral-800">
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
+      <div className="relative overflow-hidden rounded-xl border border-neutral-200 dark:border-neutral-800 h-72">
+        <Image
           src={images[currentIndex]}
           alt={`${alt} ${currentIndex + 1}`}
-          className="h-72 w-full object-cover"
+          fill
+          className="object-cover"
+          sizes="(max-width: 768px) 100vw, 768px"
         />
       </div>
 

@@ -164,3 +164,101 @@ export async function getCommentCount(itemId: string) {
 
   return count ?? 0;
 }
+
+// =====================================================
+// Like Comment
+// =====================================================
+
+export async function likeComment(commentId: string) {
+  const supabase = await createSupabaseServerClient();
+  const { data: { user } } = await supabase.auth.getUser();
+
+  if (!user) {
+    return { error: "로그인이 필요합니다" };
+  }
+
+  const { error } = await supabase
+    .from("comment_likes")
+    .insert({ comment_id: commentId, user_id: user.id });
+
+  if (error) {
+    if (error.code === "23505") {
+      return { error: "이미 좋아요를 누르셨습니다" };
+    }
+    return { error: error.message };
+  }
+
+  return { success: true };
+}
+
+// =====================================================
+// Unlike Comment
+// =====================================================
+
+export async function unlikeComment(commentId: string) {
+  const supabase = await createSupabaseServerClient();
+  const { data: { user } } = await supabase.auth.getUser();
+
+  if (!user) {
+    return { error: "로그인이 필요합니다" };
+  }
+
+  const { error } = await supabase
+    .from("comment_likes")
+    .delete()
+    .eq("comment_id", commentId)
+    .eq("user_id", user.id);
+
+  if (error) {
+    return { error: error.message };
+  }
+
+  return { success: true };
+}
+
+// =====================================================
+// Get Comment Like Counts
+// =====================================================
+
+export async function getCommentLikeCounts(commentIds: string[]): Promise<Record<string, number>> {
+  if (commentIds.length === 0) return {};
+
+  const supabase = await createSupabaseServerClient();
+
+  const { data, error } = await supabase
+    .from("comment_likes")
+    .select("comment_id")
+    .in("comment_id", commentIds);
+
+  if (error || !data) return {};
+
+  const counts: Record<string, number> = {};
+  for (const like of data) {
+    counts[like.comment_id] = (counts[like.comment_id] || 0) + 1;
+  }
+
+  return counts;
+}
+
+// =====================================================
+// Check Comment Like Status
+// =====================================================
+
+export async function checkCommentLikeStatus(commentIds: string[]): Promise<Set<string>> {
+  if (commentIds.length === 0) return new Set();
+
+  const supabase = await createSupabaseServerClient();
+  const { data: { user } } = await supabase.auth.getUser();
+
+  if (!user) return new Set();
+
+  const { data, error } = await supabase
+    .from("comment_likes")
+    .select("comment_id")
+    .eq("user_id", user.id)
+    .in("comment_id", commentIds);
+
+  if (error || !data) return new Set();
+
+  return new Set(data.map(like => like.comment_id));
+}

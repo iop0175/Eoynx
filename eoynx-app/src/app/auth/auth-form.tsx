@@ -1,12 +1,14 @@
 "use client";
 
 import * as React from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { signInWithEmail, signUpWithEmail, signInWithGoogle } from "@/app/actions/auth";
+import { Alert } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import { UI_INPUT_BASE } from "@/components/ui/ui-classes";
 
 export function AuthForm() {
-  const router = useRouter();
   const searchParams = useSearchParams();
   const [mode, setMode] = React.useState<"signin" | "signup">("signin");
   const [error, setError] = React.useState<string | null>(null);
@@ -104,11 +106,11 @@ export function AuthForm() {
   return (
     <div className="grid gap-4">
       {/* Google Sign In */}
-      <button
-        type="button"
+      <Button
         onClick={handleGoogleSignIn}
         disabled={loading}
-        className="flex items-center justify-center gap-2 rounded-xl border border-neutral-200 bg-white px-4 py-3 text-sm font-medium text-neutral-900 hover:bg-neutral-50 disabled:opacity-50 dark:border-neutral-800 dark:bg-black dark:text-white dark:hover:bg-neutral-900"
+        variant="secondary"
+        className="w-full gap-2 py-3"
       >
         <svg className="h-5 w-5" viewBox="0 0 24 24">
           <path
@@ -129,7 +131,7 @@ export function AuthForm() {
           />
         </svg>
         {loading ? "Loading..." : "Continue with Google"}
-      </button>
+      </Button>
 
       <div className="relative">
         <div className="absolute inset-0 flex items-center">
@@ -149,7 +151,7 @@ export function AuthForm() {
           type="email"
           placeholder="Email"
           required
-          className="w-full rounded-xl border border-neutral-200 bg-white px-4 py-3 text-sm outline-none placeholder:text-neutral-400 focus:border-neutral-300 dark:border-neutral-800 dark:bg-black dark:focus:border-neutral-700"
+          className={UI_INPUT_BASE}
         />
         <input
           name="password"
@@ -157,27 +159,28 @@ export function AuthForm() {
           placeholder="Password"
           required
           minLength={6}
-          className="w-full rounded-xl border border-neutral-200 bg-white px-4 py-3 text-sm outline-none placeholder:text-neutral-400 focus:border-neutral-300 dark:border-neutral-800 dark:bg-black dark:focus:border-neutral-700"
+          className={UI_INPUT_BASE}
         />
-        <button
+        <Button
           type="submit"
           disabled={loading}
-          className="rounded-xl bg-neutral-900 px-4 py-3 text-sm font-medium text-white hover:bg-neutral-800 disabled:opacity-50 dark:bg-white dark:text-black dark:hover:bg-neutral-200"
+          variant="neutral"
+          className="py-3"
         >
           {loading ? "Loading..." : mode === "signin" ? "Sign in" : "Sign up"}
-        </button>
+        </Button>
       </form>
 
       {error && (
-        <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-800 dark:border-red-900/40 dark:bg-red-950/30 dark:text-red-200">
+        <Alert tone="error">
           {error}
-        </div>
+        </Alert>
       )}
 
       {success && (
-        <div className="rounded-xl border border-green-200 bg-green-50 p-3 text-sm text-green-800 dark:border-green-900/40 dark:bg-green-950/30 dark:text-green-200">
+        <Alert tone="success">
           {success}
-        </div>
+        </Alert>
       )}
 
       <div className="text-center text-sm text-neutral-600 dark:text-neutral-400">

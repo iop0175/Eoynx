@@ -128,6 +128,12 @@ Create a public-first luxury collection community where **profiles and items are
 - Feed: Public items feed
 - Collections: List + detail pages
 
+### ✅ Real-time synchronization (new)
+- WEB DM thread: receive new message INSERT events immediately and refresh the thread UI
+- DM Inbox: detect thread/message changes in real time and update list + unread counts
+- Feed likes: update per-card like count and "liked by me" state immediately on `likes` table changes
+- Notifications: keep existing real-time subscription behavior (no regression)
+
 ### ✅ Item CRUD (Full)
 - **Create**: Single-form add page with multi-image upload (primary + sub images)
 - **Read**: Item detail page with image slider
@@ -164,30 +170,31 @@ Create a public-first luxury collection community where **profiles and items are
 
 ## 7) To-Do List (해야 할 일)
 
-### Priority 1 — Social Features
-- [ ] Follow/Unfollow functionality (insert/delete followers)
-- [ ] Like functionality (items)
-- [ ] Bookmark/Save functionality (items)
-- [ ] Follower/Following counts update in real-time
+### Priority 1 — Social Features ✅
+- [x] Follow/Unfollow functionality (insert/delete followers)
+- [x] Like functionality (items)
+- [x] Bookmark/Save functionality (items)
+- [x] Follower/Following counts update in real-time
 
-### Priority 2 — SEO & Marketing
-- [ ] OG images for profiles and items
-- [ ] Proper meta tags and descriptions
-- [ ] sitemap.xml generation
-- [ ] robots.txt configuration
-- [ ] Landing page (/) design
+### Priority 2 — SEO & Marketing ✅
+- [x] OG images for profiles and items
+- [x] Proper meta tags and descriptions
+- [x] sitemap.xml generation
+- [x] robots.txt configuration
+- [ ] Landing page (/) design (optional)
 
-### Priority 3 — Collections
-- [ ] Create collection flow
-- [ ] Add item to collection
-- [ ] Collection detail page with items
-- [ ] Public/Private collection toggle
+### Priority 3 — Collections ✅
+- [x] Create collection flow
+- [x] Add item to collection
+- [x] Collection detail page with items
+- [x] Public/Private collection toggle
 
 ### Priority 4 — Comments ✅
 - [x] Comment model in database
 - [x] Comment list on item detail
 - [x] Add comment functionality
 - [x] Comment count display
+- [x] Comment likes with like count
 
 ### Priority 5 — DM System ✅
 - [x] Real message threads (not skeleton)
@@ -200,13 +207,109 @@ Create a public-first luxury collection community where **profiles and items are
 - [x] New follower notifications
 - [x] Like/comment notifications
 - [x] DM notifications
+- [x] Notification badge in navbar
+
+### Priority 7 — Profile Customization ✅
+- [x] Handle (username) can be changed with uniqueness check
+- [x] Display name editable (allows duplicates)
+- [x] Real-time handle availability check
+
+### Priority 8 — Feed Enhancements ✅
+- [x] Feed card dropdown for item details (description, brand, category)
+- [x] Inline comments in feed card
+- [x] Top 3 comments preview (sorted by likes)
+- [x] Comment like/unlike directly in feed
+
+### Priority 9 — Percentile System ✅
+- [x] Percentile calculation logic based on collection value
+- [x] Category-specific percentiles (Luxury, Accessories, Cars)
+- [x] Profile page percentile display with category switching
+- [x] Fallback to item count when no values
+
+### Priority 10 — Real-time updates ✅
+- [x] WEB DM thread: immediate UI refresh on new message INSERT
+- [x] DM Inbox: real-time thread/message detection for list + unread updates
+- [x] Feed likes: immediate like count / my-like state sync from `likes` changes
+- [x] Notifications: preserve existing real-time subscription behavior
+
+### Priority 11 — Report / Block ✅
+- [x] User report flow (ReportModal)
+- [x] Block/unblock users
+- [x] Blocked users list (`/settings/blocked`)
+- [x] Hide blocked users from feed/comments
+
+### Priority 12 — Followers / Following Pages ✅
+- [x] Followers page (`/u/[handle]/followers`)
+- [x] Following page (`/u/[handle]/following`)
+- [x] Unfollow action from following page
+
+### Priority 13 — DM Settings ✅
+- [x] `dm_open` profile setting (Open / Request Required)
+- [x] DM mode switch in Settings page
+
+### Priority 14 — Infinite Scroll ✅
+- [x] Infinite scroll in feed
+- [x] Infinite scroll for search items
+- [x] Infinite scroll for followers list
+- [x] Infinite scroll for following list
+
+### Priority 15 — Developer Environment ✅
+- [x] Seed item data (`supabase/seed_items.sql`)
+- [x] Unsplash image domain config (`next.config.ts`)
+
+### Priority 16 — Search Improvements ✅
+- [x] Sort options (newest / oldest / most liked)
+- [x] Category filters (All / Luxury / Accessories / Cars / Real Estate)
+- [x] Include brand in search
+- [x] Filter panel UI
+
+### Priority 17 — Profile Item Sorting ✅
+- [x] Sort options (newest / oldest / most liked)
+- [x] Sort dropdown UI
+- [x] Item query API including like counts
+
+### Priority 18 — Remove Follower Feature ✅
+- [x] `removeFollower` server action (`social.ts`)
+- [x] Show X button for owner on followers page
+- [x] Confirm dialog + loading state UI
+- [x] i18n translations (ko/en)
+
+### Priority 19 — Image Optimization ✅
+- [x] `image-slider.tsx`: raw `<img>` to `next/image` (WebP/AVIF, lazy loading, sizes)
+- [x] `item-card.tsx`: raw `<img>` to `next/image` (explicit width/height)
+- [x] `navbar.tsx`: avatar `<img>` to `Avatar` component (desktop/mobile)
+- [x] `comments.tsx`: avatar `<img>` to `Avatar` component
+- [x] `blocked-client.tsx`: avatar `<img>` to `Avatar` component
+- [x] `dm-inbox-client.tsx`: avatar `<img>` to `Avatar` component
+- [x] `dm-thread-client.tsx`: direct `Image` usage to `Avatar` component
+- [x] `dm-requests-client.tsx`: direct `Image` usage to `Avatar` component
+- [x] `notifications-client.tsx`: avatar to `Avatar`, item thumbnail `sizes` added
+
+### Priority 20 — Error Boundaries & 404 ✅
+- [x] Shared ErrorFallback component (`error-fallback.tsx`)
+- [x] Global `error.tsx` (root boundary)
+- [x] Global `not-found.tsx` (404 page)
+- [x] Route-level `error.tsx` (feed, search, dm, notifications, profile, item, settings)
+- [x] i18n translation keys (`error` / `notFound`)
+
+### Priority 21 — Skeleton Loaders ✅
+- [x] Shared skeleton components (`skeleton.tsx`: SkeletonBox, SkeletonCircle, SkeletonText, FeedCardSkeleton, ProfileItemSkeleton, DMThreadSkeleton, NotificationSkeleton, PillTabsSkeleton)
+- [x] Route-level `loading.tsx` (feed, search, dm, notifications, profile, item, settings)
+
+### Remaining Tasks (남은 작업)
+- [ ] **Landing Page**: Marketing landing page design (/)
+- [ ] **Share Cards**: Generate 9:16 share cards for social media
+- [ ] **Push Notifications**: Real-time push via FCM/APNs
 
 ### Future (Post-MVP)
-- [ ] Percentile ranking system
 - [ ] Share cards (9:16 format)
-- [ ] Push notifications
+- [ ] Push notifications (FCM/APNs)
 - [ ] Native app (Expo)
 - [ ] Verified value system with sources
+- [ ] Admin dashboard
+- [ ] Analytics integration
+- [ ] Real-time chat with WebSocket
+- [ ] Image CDN integration
 
 ## 8) Milestones (suggested)
 

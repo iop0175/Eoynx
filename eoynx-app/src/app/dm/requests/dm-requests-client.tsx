@@ -2,9 +2,9 @@
 
 import { useState, useTransition } from "react";
 import Link from "next/link";
-import Image from "next/image";
 import { Check, X } from "lucide-react";
 import { respondToDMRequest, type DMRequest } from "@/app/actions/dm";
+import { Avatar } from "@/components/ui/optimized-image";
 
 interface DMRequestsClientProps {
   initialRequests: DMRequest[];
@@ -60,22 +60,13 @@ export function DMRequestsClient({ initialRequests }: DMRequestsClientProps) {
           key={request.id}
           className="flex items-start gap-3 rounded-xl border border-neutral-200 bg-white p-4 dark:border-neutral-800 dark:bg-black"
         >
-          <Link
-            href={`/u/${request.from_user.handle}`}
-            className="relative h-10 w-10 shrink-0"
-          >
-            {request.from_user.avatar_url ? (
-              <Image
-                src={request.from_user.avatar_url}
-                alt={request.from_user.display_name ?? request.from_user.handle}
-                fill
-                className="rounded-full object-cover"
-              />
-            ) : (
-              <div className="flex h-full w-full items-center justify-center rounded-full bg-neutral-200 text-sm font-medium text-neutral-600 dark:bg-neutral-700 dark:text-neutral-300">
-                {(request.from_user.display_name ?? request.from_user.handle).charAt(0).toUpperCase()}
-              </div>
-            )}
+          <Link href={`/u/${request.from_user.handle}`}>
+            <Avatar
+              src={request.from_user.avatar_url}
+              alt={request.from_user.display_name ?? request.from_user.handle}
+              size="md"
+              fallbackInitial={(request.from_user.display_name ?? request.from_user.handle).charAt(0).toUpperCase()}
+            />
           </Link>
 
           <div className="min-w-0 flex-1">

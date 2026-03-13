@@ -4,6 +4,7 @@ import * as React from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Home, Search, Plus, Bell, User, Menu, X } from "lucide-react";
+import { Avatar } from "@/components/ui/optimized-image";
 
 type NavbarProps = {
   user: {
@@ -65,20 +66,16 @@ export function Navbar({ user, unreadNotifications = 0 }: NavbarProps) {
           {user ? (
             <Link
               href={`/u/${user.handle}`}
-              className={`ml-2 flex h-8 w-8 items-center justify-center overflow-hidden rounded-full bg-neutral-200 transition-transform hover:scale-105 dark:bg-neutral-800 ${
-                pathname?.startsWith("/u/") ? "ring-2 ring-violet-500" : ""
+              className={`ml-2 transition-transform hover:scale-105 ${
+                pathname?.startsWith("/u/") ? "ring-2 ring-violet-500 rounded-full" : ""
               }`}
             >
-              {user.avatar_url ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  src={user.avatar_url}
-                  alt={user.handle}
-                  className="h-full w-full object-cover"
-                />
-              ) : (
-                <User className="h-4 w-4 text-neutral-500" />
-              )}
+              <Avatar
+                src={user.avatar_url}
+                alt={user.handle}
+                size="sm"
+                fallbackInitial={user.handle.charAt(0).toUpperCase()}
+              />
             </Link>
           ) : (
             <Link
@@ -138,17 +135,13 @@ export function Navbar({ user, unreadNotifications = 0 }: NavbarProps) {
                     : "text-neutral-600 hover:bg-neutral-50 hover:text-neutral-900 dark:text-neutral-400 dark:hover:bg-neutral-900 dark:hover:text-white"
                 }`}
               >
-                <div className="flex h-5 w-5 items-center justify-center overflow-hidden rounded-full bg-neutral-200 dark:bg-neutral-700">
-                  {user.avatar_url ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
-                      src={user.avatar_url}
-                      alt={user.handle}
-                      className="h-full w-full object-cover"
-                    />
-                  ) : (
-                    <User className="h-3 w-3 text-neutral-500" />
-                  )}
+                <div className="flex h-5 w-5 items-center justify-center">
+                  <Avatar
+                    src={user.avatar_url}
+                    alt={user.handle}
+                    size="xs"
+                    fallbackInitial={user.handle.charAt(0).toUpperCase()}
+                  />
                 </div>
                 <span>Profile</span>
               </Link>

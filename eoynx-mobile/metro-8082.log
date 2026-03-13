@@ -1,0 +1,70 @@
+env: load .env
+env: export EXPO_PUBLIC_SUPABASE_ANON_KEY EXPO_PUBLIC_SUPABASE_REDIRECT_URL EXPO_PUBLIC_SUPABASE_URL
+Starting project at c:\git\Eoynx\eoynx-mobile
+Starting Metro Bundler
+
+warning: Bundler cache is empty, rebuilding (this may take a minute)
+Waiting on http://localhost:8082
+Logs for your project will appear below.
+Android .\index.ts ░░░░░░░░░░░░░░░░  0.0% (0/1)
+Android .\index.ts ▓▓▓▓░░░░░░░░░░░░ 30.9% (169/304)
+Android .\index.ts ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓░ 95.9% (1191/1218)
+Android Bundled 8370ms index.ts (1243 modules)
+ LOG  [Auth] onAuthStateChange event = INITIAL_SESSION session = false
+ LOG  [OAuth] envRedirectTo = eoynxmobile://auth/callback
+ LOG  [OAuth] fallbackRedirectTo = eoynxmobile://auth/callback
+ LOG  [OAuth] redirectTo = eoynxmobile://auth/callback
+ LOG  [OAuth] authUrl = https://gjsoavcxxrlnyqdzmsru.supabase.co/auth/v1/authorize?provider=google&redirect_to=eoynxmobile%3A%2F%2Fauth%2Fcallback
+ LOG  [OAuth] browserResultType = opened
+ LOG  [OAuth] callbackUrl = eoynxmobile://auth/callback#access_token=eyJhbGciOiJFUzI1NiIsImtpZCI6IjE4OGJhZDhkLWFmMGItNDllYS05ZTg4LTUwMDhlODJmNjliZCIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJodHRwczovL2dqc29hdmN4eHJsbnlxZHptc3J1LnN1cGFiYXNlLmNvL2F1dGgvdjEiLCJzdWIiOiJlMWJhMTExMS1hY2EwLTQ5NzUtYTIyNS04YTgxMmU5Y2UzMzIiLCJhdWQiOiJhdXRoZW50aWNhdGVkIiwiZXhwIjoxNzczMTQ3ODUwLCJpYXQiOjE3NzMxNDQyNTAsImVtYWlsIjoiZGFlZ2lldW43MDBAZ21haWwuY29tIiwicGhvbmUiOiIiLCJhcHBfbWV0YWRhdGEiOnsicHJvdmlkZXIiOiJnb29nbGUiLCJwcm92aWRlcnMiOlsiZ29vZ2xlIl19LCJ1c2VyX21ldGFkYXRhIjp7ImF2YXRhcl91cmwiOiJodHRwczovL2xoMy5nb29nbGV1c2VyY29udGVudC5jb20vYS9BQ2c4b2NMZkl5UVlTTG9ucXluUGhZM0VDX21xZ2NCbUMwb1BYb0duMkFvQUt3ZDBpYW1NcWc9czk2LWMiLCJlbWFpbCI6ImRhZWdpZXVuNzAwQGdtYWlsLmNvbSIsImVtYWlsX3ZlcmlmaWVkIjp0cnVlLCJmdWxsX25hbWUiOiLsnYDrjIDquLAiLCJpc3MiOiJodHRwczovL2FjY291bnRzLmdvb2dsZS5jb20iLCJuYW1lIjoi7J2A64yA6riwIiwicGhvbmVfdmVyaWZpZWQiOmZhbHNlLCJwaWN0dXJlIjoiaHR0cHM6Ly9saDMuZ29vZ2xldXNlcmNvbnRlbnQuY29tL2EvQUNnOG9jTGZJeVFZU0xvbnF5blBoWTNFQ19tcWdjQm1DMG9QWG9HbjJBb0FLd2QwaWFtTXFnPXM5Ni1jIiwicHJvdmlkZXJfaWQiOiIxMDA2MjY0MTk0NTc5MTE4MDc3MjEiLCJzdWIiOiIxMDA2MjY0MTk0NTc5MTE4MDc3MjEifSwicm9sZSI6ImF1dGhlbnRpY2F0ZWQiLCJhYWwiOiJhYWwxIiwiYW1yIjpbeyJtZXRob2QiOiJvYXV0aCIsInRpbWVzdGFtcCI6MTc3MzE0NDI1MH1dLCJzZXNzaW9uX2lkIjoiZjNkODM1ZTUtODZhYy00NDA5LTlhMzktM2QxZTUxMGZkYTc4IiwiaXNfYW5vbnltb3VzIjpmYWxzZX0.7cBx5WsdfYv5YyPaxunltT45gtoZWkpOtTVLizy12Ei133pwbcyt1p89OfKeKDehYXXpMsHIqG48NjI_jVyatA&expires_at=1773147850&expires_in=3600&provider_token=ya29.A0ATkoCc7uMXYikL9Lo9_7XpQT5DNm12uV_x25VXbTwYnTeJJL-CxYlouuSxydXb8RhpjUEpPS8sxhzVR5LLPAf7GvbZbCxnQffEtLMbdZJ_IrylSjNlIfGCq0IjmgMqgtTa50x-hU06ABh4DveD9J-UFCVUVqdYd_TVlIMCc9r5UB4_1L1q_usi117fv4eBxzd3keeUWhQ3Pdv_TDa4RCgROWvr-BfWWdZDGIhp5PZE2IWUf0wSM4cXjMf7zbwC0dCNeityIhbvvSLqgZWk8a8I9B9VcaCgYKAVwSARcSFQHGX2Miq8PWVVw1cD-C19GD9DG8Fg0290&refresh_token=4ysv2667a7zp&sb=&token_type=bearer
+ LOG  [OAuth] token callback detected
+ LOG  [Auth] onAuthStateChange event = SIGNED_IN session = true
+ ERROR  [TypeError: Cannot read property 'name' of undefined]
+ LOG  [Auth] onAuthStateChange event = INITIAL_SESSION session = true
+Android .\index.ts ░░░░░░░░░░░░░░░░  0.0% (0/1)
+Android Bundled 33ms index.ts (1 module)
+ LOG  [Auth] onAuthStateChange event = INITIAL_SESSION session = true
+Unable to resolve "../screens/ProfileScreen" from "src\navigation\RootNavigator.tsx"
+[0m [90m 12 |[39m [36mimport[39m { [33mDMThreadScreen[39m } [36mfrom[39m [32m"../screens/dm/DMThreadScreen"[39m[33m;[39m
+ [90m 13 |[39m [36mimport[39m { [33mNotificationsScreen[39m } [36mfrom[39m [32m"../screens/NotificationsScreen"[39m[33m;[39m
+[31m[1m>[22m[39m[90m 14 |[39m [36mimport[39m { [33mProfileScreen[39m } [36mfrom[39m [32m"../screens/ProfileScreen"[39m[33m;[39m
+ [90m    |[39m                                [31m[1m^[22m[39m
+ [90m 15 |[39m [36mimport[39m { [33mProfileEditScreen[39m } [36mfrom[39m [32m"../screens/profile/ProfileEditScreen"[39m[33m;[39m
+ [90m 16 |[39m [36mimport[39m { [33mUserProfileScreen[39m } [36mfrom[39m [32m"../screens/profile/UserProfileScreen"[39m[33m;[39m
+ [90m 17 |[39m [36mimport[39m { [33mSearchScreen[39m } [36mfrom[39m [32m"../screens/SearchScreen"[39m[33m;[39m[0m
+
+Import stack:
+
+ src\navigation\RootNavigator.tsx
+ | import "../screens/ProfileScreen"
+
+ 
+ | import "./src/navigation/RootNavigator"
+
+Android .\index.ts ░░░░░░░░░░░░░░░░  0.0% (0/1)
+Android Bundled 36ms index.ts (1 module)
+ LOG  [Auth] onAuthStateChange event = INITIAL_SESSION session = true
+Unable to resolve "../screens/NotificationsScreen" from "src\navigation\RootNavigator.tsx"
+[0m [90m 11 |[39m [36mimport[39m { [33mDMRequestsScreen[39m } [36mfrom[39m [32m"../screens/dm/DMRequestsScreen"[39m[33m;[39m
+ [90m 12 |[39m [36mimport[39m { [33mDMThreadScreen[39m } [36mfrom[39m [32m"../screens/dm/DMThreadScreen"[39m[33m;[39m
+[31m[1m>[22m[39m[90m 13 |[39m [36mimport[39m { [33mNotificationsScreen[39m } [36mfrom[39m [32m"../screens/NotificationsScreen"[39m[33m;[39m
+ [90m    |[39m                                      [31m[1m^[22m[39m
+ [90m 14 |[39m [36mimport[39m { [33mProfileScreen[39m } [36mfrom[39m [32m"../screens/ProfileScreen"[39m[33m;[39m
+ [90m 15 |[39m [36mimport[39m { [33mProfileEditScreen[39m } [36mfrom[39m [32m"../screens/profile/ProfileEditScreen"[39m[33m;[39m
+ [90m 16 |[39m [36mimport[39m { [33mUserProfileScreen[39m } [36mfrom[39m [32m"../screens/profile/UserProfileScreen"[39m[33m;[39m[0m
+
+Import stack:
+
+ src\navigation\RootNavigator.tsx
+ | import "../screens/NotificationsScreen"
+
+ 
+ | import "./src/navigation/RootNavigator"
+
+Android .\index.ts ░░░░░░░░░░░░░░░░  0.0% (0/1)
+Android Bundled 35ms index.ts (1 module)
+ LOG  [Auth] onAuthStateChange event = INITIAL_SESSION session = true
+Android .\index.ts ░░░░░░░░░░░░░░░░  0.0% (0/1)
+Android Bundled 34ms index.ts (1 module)
+ LOG  [Auth] onAuthStateChange event = INITIAL_SESSION session = true
+ ERROR  [Error: Cannot find native module 'ExponentImagePicker']

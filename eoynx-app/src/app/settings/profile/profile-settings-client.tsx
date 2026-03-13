@@ -2,8 +2,16 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { Camera, X, User } from "lucide-react";
-import { updateProfile, uploadAvatar, removeAvatar } from "@/app/actions/profile";
+import { Camera, X, User, Check, AlertCircle, Loader2 } from "lucide-react";
+import { updateProfile, uploadAvatar, removeAvatar, checkHandleAvailability } from "@/app/actions/profile";
+import { Alert } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import {
+  UI_FIELD_LABEL,
+  UI_INPUT_BASE,
+  UI_SECTION_CARD,
+  UI_SECTION_TITLE,
+} from "@/components/ui/ui-classes";
 
 type ProfileSettingsClientProps = {
   profile: {
@@ -11,6 +19,7 @@ type ProfileSettingsClientProps = {
     display_name: string | null;
     bio: string | null;
     avatar_url: string | null;
+    dm_open: boolean;
   };
 };
 
@@ -18,6 +27,9 @@ export default function ProfileSettingsClient({ profile }: ProfileSettingsClient
   const router = useRouter();
   const fileInputRef = React.useRef<HTMLInputElement>(null);
 
+  const [handle, setHandle] = React.useState(profile.handle);
+  const [handleStatus, setHandleStatus] = React.useState<"idle" | "checking" | "available" | "unavailable">("idle");
+  const [handleError, setHandleError] = React.useState<string | null>(null);
   const [displayName, setDisplayName] = React.useState(profile.display_name || "");
   const [bio, setBio] = React.useState(profile.bio || "");
   const [avatarUrl, setAvatarUrl] = React.useState(profile.avatar_url);
@@ -25,6 +37,48 @@ export default function ProfileSettingsClient({ profile }: ProfileSettingsClient
   const [saving, setSaving] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const [success, setSuccess] = React.useState(false);
+
+  // Debounced handle availability check
+  React.useEffect(() => {
+    const trimmedHandle = handle.toLowerCase().trim();
+    
+    // If same as original, reset status
+    if (trimmedHandle === profile.handle) {
+      setHandleStatus("idle");
+      setHandleError(null);
+      return;
+    }
+
+    // Basic format validation
+    if (trimmedHandle.length < 3) {
+      setHandleStatus("unavailable");
+      setHandleError("최소 3자 이상 입력하세요");
+      return;
+    }
+
+    if (!/^[a-z0-9_]+$/.test(trimmedHandle)) {
+      setHandleStatus("unavailable");
+      setHandleError("영문 소문자, 숫자, 밑줄(_)만 사용 가능합니다");
+      return;
+    }
+
+    setHandleStatus("checking");
+    setHandleError(null);
+
+    const checkHandle = async () => {
+      const result = await checkHandleAvailability(trimmedHandle);
+      if (result.available) {
+        setHandleStatus("available");
+        setHandleError(null);
+      } else {
+        setHandleStatus("unavailable");
+        setHandleError(result.error || "이미 사용 중인 핸들입니다");
+      }
+    };
+
+    const timer = setTimeout(checkHandle, 500);
+    return () => clearTimeout(timer);
+  }, [handle, profile.handle]);
 
   // Handle avatar upload
   const handleAvatarChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -77,12 +131,19 @@ export default function ProfileSettingsClient({ profile }: ProfileSettingsClient
 
   // Save profile
   const handleSave = async () => {
+    // Don't save if handle is invalid
+    if (handle !== profile.handle && handleStatus !== "available") {
+      setError(handleError || "핸들을 확인해주세요");
+      return;
+    }
+
     setSaving(true);
     setError(null);
     setSuccess(false);
 
     try {
       const result = await updateProfile({
+        handle: handle.toLowerCase().trim(),
         displayName: displayName.trim(),
         bio: bio.trim(),
       });
@@ -91,6 +152,11 @@ export default function ProfileSettingsClient({ profile }: ProfileSettingsClient
         setError(result.error);
       } else {
         setSuccess(true);
+        // If handle changed, update local state
+        if (result.newHandle) {
+          setHandle(result.newHandle);
+          setHandleStatus("idle");
+        }
         router.refresh();
         setTimeout(() => setSuccess(false), 3000);
       }
@@ -102,26 +168,25 @@ export default function ProfileSettingsClient({ profile }: ProfileSettingsClient
     }
   };
 
-  const inputClass =
-    "w-full rounded-xl border border-neutral-200 bg-white px-4 py-3 text-sm outline-none placeholder:text-neutral-400 focus:border-neutral-300 dark:border-neutral-800 dark:bg-black dark:placeholder:text-neutral-600 dark:focus:border-neutral-700";
+  const inputClass = UI_INPUT_BASE;
 
   return (
     <div className="grid gap-4">
       {error && (
-        <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-800 dark:border-red-900/40 dark:bg-red-950/30 dark:text-red-200">
+        <Alert tone="error">
           {error}
-        </div>
+        </Alert>
       )}
 
       {success && (
-        <div className="rounded-xl border border-green-200 bg-green-50 p-3 text-sm text-green-800 dark:border-green-900/40 dark:bg-green-950/30 dark:text-green-200">
+        <Alert tone="success">
           Profile saved successfully!
-        </div>
+        </Alert>
       )}
 
       {/* Avatar */}
-      <div className="rounded-xl border border-neutral-200 bg-white p-4 dark:border-neutral-800 dark:bg-black">
-        <div className="mb-3 text-xs text-neutral-500 dark:text-neutral-400">Avatar</div>
+      <div className={UI_SECTION_CARD}>
+        <div className={UI_SECTION_TITLE}>Avatar</div>
         <div className="flex items-center gap-4">
           {/* Avatar preview */}
           <div className="relative">
@@ -154,15 +219,15 @@ export default function ProfileSettingsClient({ profile }: ProfileSettingsClient
 
           {/* Upload button */}
           <div>
-            <button
-              type="button"
+            <Button
               onClick={() => fileInputRef.current?.click()}
               disabled={uploading}
-              className="flex items-center gap-2 rounded-xl border border-neutral-200 px-4 py-2 text-sm font-medium transition-colors hover:bg-neutral-50 disabled:opacity-50 dark:border-neutral-700 dark:hover:bg-neutral-900"
+              variant="secondary"
+              className="gap-2"
             >
               <Camera className="h-4 w-4" />
               {uploading ? "Uploading..." : "Upload"}
-            </button>
+            </Button>
             <p className="mt-1 text-xs text-neutral-500 dark:text-neutral-400">
               JPG, PNG. Max 2MB.
             </p>
@@ -179,27 +244,51 @@ export default function ProfileSettingsClient({ profile }: ProfileSettingsClient
       </div>
 
       {/* Profile Info */}
-      <div className="rounded-xl border border-neutral-200 bg-white p-4 dark:border-neutral-800 dark:bg-black">
-        <div className="mb-3 text-xs text-neutral-500 dark:text-neutral-400">Profile Info</div>
+      <div className={UI_SECTION_CARD}>
+        <div className={UI_SECTION_TITLE}>Profile Info</div>
         <div className="grid gap-4">
-          {/* Handle (read-only) */}
+          {/* Handle (editable with validation) */}
           <div>
-            <label className="mb-1.5 block text-xs text-neutral-500 dark:text-neutral-400">
-              Handle
+            <label className={UI_FIELD_LABEL}>
+              Handle (고유 ID)
             </label>
             <div className="flex items-center gap-2">
               <span className="text-sm text-neutral-400 dark:text-neutral-600">@</span>
-              <input
-                value={profile.handle}
-                disabled
-                className={`${inputClass} cursor-not-allowed opacity-60`}
-              />
+              <div className="relative flex-1">
+                <input
+                  value={handle}
+                  onChange={(e) => setHandle(e.target.value.toLowerCase())}
+                  placeholder="your_handle"
+                  maxLength={30}
+                  className={`${inputClass} pr-10 ${
+                    handleStatus === "unavailable" ? "border-red-400 dark:border-red-600" : 
+                    handleStatus === "available" ? "border-green-400 dark:border-green-600" : ""
+                  }`}
+                />
+                <div className="absolute right-3 top-1/2 -translate-y-1/2">
+                  {handleStatus === "checking" && (
+                    <Loader2 className="h-4 w-4 animate-spin text-neutral-400" />
+                  )}
+                  {handleStatus === "available" && (
+                    <Check className="h-4 w-4 text-green-500" />
+                  )}
+                  {handleStatus === "unavailable" && (
+                    <AlertCircle className="h-4 w-4 text-red-500" />
+                  )}
+                </div>
+              </div>
             </div>
+            {handleError && (
+              <p className="mt-1 text-xs text-red-500">{handleError}</p>
+            )}
+            <p className="mt-1 text-xs text-neutral-400">
+              영문 소문자, 숫자, 밑줄(_) 가능 / 3-30자
+            </p>
           </div>
 
           {/* Display Name */}
           <div>
-            <label className="mb-1.5 block text-xs text-neutral-500 dark:text-neutral-400">
+            <label className={UI_FIELD_LABEL}>
               Display Name
             </label>
             <input
@@ -213,7 +302,7 @@ export default function ProfileSettingsClient({ profile }: ProfileSettingsClient
 
           {/* Bio */}
           <div>
-            <label className="mb-1.5 block text-xs text-neutral-500 dark:text-neutral-400">
+            <label className={UI_FIELD_LABEL}>
               Bio
             </label>
             <textarea
@@ -229,14 +318,15 @@ export default function ProfileSettingsClient({ profile }: ProfileSettingsClient
           </div>
 
           {/* Save Button */}
-          <button
-            type="button"
+          <Button
             onClick={handleSave}
             disabled={saving}
-            className="w-full rounded-xl bg-violet-600 py-3 text-sm font-semibold text-white transition-colors hover:bg-violet-500 disabled:opacity-50 dark:bg-violet-500 dark:hover:bg-violet-400"
+            variant="primary"
+            size="lg"
+            fullWidth
           >
             {saving ? "Saving..." : "Save changes"}
-          </button>
+          </Button>
         </div>
       </div>
     </div>

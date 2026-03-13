@@ -3,6 +3,7 @@
 import * as React from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { signOut } from "@/app/actions/auth";
 
 type Theme = "system" | "light" | "dark";
 
@@ -73,6 +74,16 @@ function IconUser(props: React.SVGProps<SVGSVGElement>) {
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" {...props}>
       <path d="M20 21a8 8 0 1 0-16 0" />
       <path d="M12 13a4 4 0 1 0 0-8 4 4 0 0 0 0 8z" />
+    </svg>
+  );
+}
+
+function IconLogout(props: React.SVGProps<SVGSVGElement>) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" {...props}>
+      <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+      <path d="M16 17l5-5-5-5" />
+      <path d="M21 12H9" />
     </svg>
   );
 }
@@ -177,6 +188,19 @@ export function ThemeProvider({ children, user }: { children: React.ReactNode; u
               <option value="light">Light</option>
               <option value="dark">Dark</option>
             </select>
+
+            {user && (
+              <form action={signOut}>
+                <button
+                  type="submit"
+                  aria-label="Sign out"
+                  title="Sign out"
+                  className="ml-1 inline-flex h-9 w-9 items-center justify-center rounded-full text-neutral-600 transition-colors hover:bg-neutral-100 hover:text-neutral-900 dark:text-neutral-300 dark:hover:bg-neutral-900 dark:hover:text-white"
+                >
+                  <IconLogout className="h-4 w-4" />
+                </button>
+              </form>
+            )}
           </div>
         </div>
       </div>

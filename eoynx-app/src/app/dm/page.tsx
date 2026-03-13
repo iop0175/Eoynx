@@ -1,14 +1,20 @@
-import Link from "next/link";
+import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { NOINDEX } from "@/lib/robots";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getThreads, getDMRequests } from "@/app/actions/dm";
 import { DMInboxClient } from "./dm-inbox-client";
+import { getTranslations } from "next-intl/server";
 
-export const metadata = {
-  title: "DM",
-  robots: NOINDEX,
-};
+export const dynamic = "force-dynamic";
+
+export async function generateMetadata(): Promise<Metadata> {
+  const t = await getTranslations("dm");
+  return {
+    title: t("title"),
+    robots: NOINDEX,
+  };
+}
 
 export default async function DMInboxPage() {
   const supabase = await createSupabaseServerClient();
@@ -27,6 +33,7 @@ export default async function DMInboxPage() {
     <DMInboxClient 
       threads={threadsResult.threads}
       requestCount={requestsResult.requests.length}
+      currentUserId={user.id}
     />
   );
 }

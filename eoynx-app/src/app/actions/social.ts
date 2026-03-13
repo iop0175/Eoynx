@@ -65,6 +65,29 @@ export async function unfollowUser(targetUserId: string) {
   return { success: true };
 }
 
+// Remove a follower (allow profile owner to remove someone following them)
+export async function removeFollower(followerUserId: string) {
+  const supabase = await createSupabaseServerClient();
+  const { data: { user } } = await supabase.auth.getUser();
+
+  if (!user) {
+    return { error: "로그인이 필요합니다" };
+  }
+
+  // Delete the follower relationship where the follower is following the current user
+  const { error } = await supabase
+    .from("followers")
+    .delete()
+    .eq("follower_id", followerUserId)
+    .eq("following_id", user.id);
+
+  if (error) {
+    return { error: error.message };
+  }
+
+  return { success: true };
+}
+
 export async function checkIsFollowing(targetUserId: string) {
   const supabase = await createSupabaseServerClient();
   const { data: { user } } = await supabase.auth.getUser();
@@ -322,4 +345,159 @@ export async function getBatchLikeCounts(itemIds: string[]) {
   });
 
   return countsMap;
+}
+
+// =====================================================
+// Followers / Following Lists
+// =====================================================
+
+export type FollowUser = {
+  id: string;
+  handle: string;
+  display_name: string | null;
+  avatar_url: string | null;
+};
+
+export async function getFollowers(userId: string): Promise<{ data: FollowUser[] | null; error: string | null }> {
+  const supabase = await createSupabaseServerClient();
+
+  const { data, error } = await supabase
+    .from("followers")
+    .select(`
+      follower:profiles!followers_follower_id_fkey (
+        id,
+        handle,
+        display_name,
+        avatar_url
+      )
+    `)
+    .eq("following_id", userId)
+    .order("created_at", { ascending: false });
+
+  if (error) {
+    return { data: null, error: error.message };
+  }
+
+  const followers = data?.map((row) => row.follower as unknown as FollowUser).filter(Boolean) ?? [];
+  return { data: followers, error: null };
+}
+
+export async function getFollowing(userId: string): Promise<{ data: FollowUser[] | null; error: string | null }> {
+  const supabase = await createSupabaseServerClient();
+
+  const { data, error } = await supabase
+    .from("followers")
+    .select(`
+      following:profiles!followers_following_id_fkey (
+        id,
+        handle,
+        display_name,
+        avatar_url
+      )
+    `)
+    .eq("follower_id", userId)
+    .order("created_at", { ascending: false });
+
+  if (error) {
+    return { data: null, error: error.message };
+  }
+
+  const following = data?.map((row) => row.following as unknown as FollowUser).filter(Boolean) ?? [];
+  return { data: following, error: null };
+}
+
+// =====================================================
+// Paginated Followers / Following
+// =====================================================
+
+const FOLLOW_PAGE_SIZE = 20;
+
+export type FollowersPageResult = {
+  users: FollowUser[];
+  hasMore: boolean;
+  nextCursor: string | null;
+};
+
+export async function getFollowersPaginated(
+  userId: string,
+  cursor?: string | null
+): Promise<FollowersPageResult> {
+  const supabase = await createSupabaseServerClient();
+
+  let query = supabase
+    .from("followers")
+    .select(`
+      created_at,
+      follower:profiles!followers_follower_id_fkey (
+        id,
+        handle,
+        display_name,
+        avatar_url
+      )
+    `)
+    .eq("following_id", userId)
+    .order("created_at", { ascending: false })
+    .limit(FOLLOW_PAGE_SIZE + 1);
+
+  if (cursor) {
+    query = query.lt("created_at", cursor);
+  }
+
+  const { data, error } = await query;
+
+  if (error || !data) {
+    return { users: [], hasMore: false, nextCursor: null };
+  }
+
+  const hasMore = data.length > FOLLOW_PAGE_SIZE;
+  const pageData = hasMore ? data.slice(0, FOLLOW_PAGE_SIZE) : data;
+  const nextCursor = hasMore ? pageData[pageData.length - 1].created_at : null;
+
+  const users = pageData
+    .map((row) => row.follower as unknown as FollowUser)
+    .filter(Boolean);
+
+  return { users, hasMore, nextCursor };
+}
+
+export async function getFollowingPaginated(
+  userId: string,
+  cursor?: string | null
+): Promise<FollowersPageResult> {
+  const supabase = await createSupabaseServerClient();
+
+  let query = supabase
+    .from("followers")
+    .select(`
+      created_at,
+      following:profiles!followers_following_id_fkey (
+        id,
+        handle,
+        display_name,
+        avatar_url
+      )
+    `)
+    .eq("follower_id", userId)
+    .order("created_at", { ascending: false })
+    .limit(FOLLOW_PAGE_SIZE + 1);
+
+  if (cursor) {
+    query = query.lt("created_at", cursor);
+  }
+
+  const { data, error } = await query;
+
+  if (error || !data) {
+    return { users: [], hasMore: false, nextCursor: null };
+  }
+
+  const hasMore = data.length > FOLLOW_PAGE_SIZE;
+  const pageData = hasMore ? data.slice(0, FOLLOW_PAGE_SIZE) : data;
+  const nextCursor = hasMore ? pageData[pageData.length - 1].created_at : null;
+
+  const users = pageData
+    .map((row) => row.following as unknown as FollowUser)
+    .filter(Boolean);
+
+  return { users, hasMore, nextCursor };
 }

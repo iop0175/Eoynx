@@ -29,6 +29,40 @@ export type Notification = {
   created_at: string;
 };
 
+async function sendExpoPush({
+  to,
+  title,
+  body,
+  data,
+}: {
+  to: string;
+  title: string;
+  body: string;
+  data?: Record<string, string | null | undefined>;
+}) {
+  try {
+    const res = await fetch("https://exp.host/--/api/v2/push/send", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        to,
+        sound: "default",
+        title,
+        body,
+        data,
+      }),
+    });
+    const payload = await res.json().catch(() => null);
+    if (!res.ok) {
+      console.error("Expo push failed:", res.status, payload);
+    }
+  } catch (error) {
+    console.error("Expo push request error:", error);
+  }
+}
+
 // =====================================================
 // Create Notification (Internal helper)
 // =====================================================
@@ -70,6 +104,38 @@ export async function createNotification({
   if (error) {
     console.error("Failed to create notification:", error);
     return { error: error.message };
+  }
+
+  // Try to send mobile push notification when recipient has Expo token.
+  const [{ data: recipientProfile }, { data: actorProfile }] = await Promise.all([
+    supabase.from("profiles").select("expo_push_token").eq("id", userId).maybeSingle(),
+    actorId
+      ? supabase.from("profiles").select("handle,display_name").eq("id", actorId).maybeSingle()
+      : Promise.resolve({ data: null, error: null }),
+  ]);
+
+  const expoPushToken = recipientProfile?.expo_push_token ?? null;
+  if (expoPushToken) {
+    const actorName = actorProfile?.display_name ?? actorProfile?.handle ?? "Someone";
+    let body = "You have a new notification";
+    if (type === "follow") body = `${actorName} followed you`;
+    if (type === "like") body = `${actorName} liked your item`;
+    if (type === "comment") body = `${actorName} commented on your item`;
+    if (type === "dm") body = preview?.trim() ? preview : `${actorName} sent you a message`;
+    if (type === "dm_request") body = `${actorName} sent a DM request`;
+
+    await sendExpoPush({
+      to: expoPushToken,
+      title: "EOYNX",
+      body,
+      data: {
+        type,
+        threadId: threadId ?? null,
+        itemId: itemId ?? null,
+        actorId: actorId ?? null,
+        actorHandle: actorProfile?.handle ?? null,
+      },
+    });
   }
 
   return { success: true };

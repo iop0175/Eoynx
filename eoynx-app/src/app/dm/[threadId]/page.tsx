@@ -35,6 +35,8 @@ export default async function DMThreadPage({ params }: Props) {
       otherUser={threadResult.otherUser!}
       initialMessages={messagesResult.messages}
       currentUserId={threadResult.currentUserId!}
+      canSend={threadResult.canSend ?? true}
+      roomKeyBase64={threadResult.roomKey ?? null}
     />
   );
 }

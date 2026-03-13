@@ -28,7 +28,9 @@ export async function generateMetadata({ params }: ItemPageProps): Promise<Metad
   const isPrivateOrMissing = !item || item.visibility === "private";
 
   const title = item?.title ? `${item.title} · EOYNX` : `Item ${id} · EOYNX`;
-  const description = item?.description ?? "Public item page on EOYNX.";
+  const description = item?.description 
+    ? item.description.slice(0, 160) 
+    : "Discover this item on EOYNX - the luxury collection community.";
 
   return {
     title,
@@ -41,14 +43,13 @@ export async function generateMetadata({ params }: ItemPageProps): Promise<Metad
       title,
       description,
       type: "article",
-      url: `/i/${id}`,
-      images: item?.image_url ? [{ url: item.image_url }] : undefined,
+      url: `https://eoynx.com/i/${id}`,
+      siteName: "EOYNX",
     },
     twitter: {
       card: "summary_large_image",
       title,
       description,
-      images: item?.image_url ? [item.image_url] : undefined,
     },
   };
 }

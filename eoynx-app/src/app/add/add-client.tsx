@@ -1,10 +1,16 @@
 "use client";
 
 import * as React from "react";
-import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { X, Plus, Star } from "lucide-react";
 import { Segmented } from "@/components/ui/segmented";
+import { Alert } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import {
+  UI_FIELD_ERROR,
+  UI_FIELD_LABEL,
+  uiInputClass,
+} from "@/components/ui/ui-classes";
 import { uploadItemImage, createItem } from "@/app/actions/item";
 
 const CATEGORIES = [
@@ -18,8 +24,18 @@ const CATEGORIES = [
   "Other",
 ];
 
+const MAX_IMAGES = 5;
+const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
+const MAX_TITLE_LENGTH = 100;
+const MAX_DESCRIPTION_LENGTH = 500;
+const MAX_BRAND_LENGTH = 80;
+const MAX_HASHTAGS = 15;
+const MAX_HASHTAG_LENGTH = 30;
+const MAX_PRICE_MINOR = 99_999_999_999; // 999,999,999.99 USD
+
+type FieldErrors = Partial<Record<"images" | "category" | "brand" | "title" | "description" | "hashtags" | "price", string>>;
+
 export default function AddClientPage() {
-  const router = useRouter();
   const fileInputRef = React.useRef<HTMLInputElement>(null);
 
   // Image state
@@ -38,6 +54,7 @@ export default function AddClientPage() {
 
   const [loading, setLoading] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
+  const [fieldErrors, setFieldErrors] = React.useState<FieldErrors>({});
 
   // Create preview URLs for files
   React.useEffect(() => {
@@ -51,14 +68,35 @@ export default function AddClientPage() {
     const files = e.target.files;
     if (!files || files.length === 0) return;
 
-    const remaining = 5 - pendingFiles.length;
+    const remaining = MAX_IMAGES - pendingFiles.length;
     if (remaining <= 0) {
-      setError("Maximum 5 images allowed");
+      setFieldErrors((prev) => ({ ...prev, images: `Maximum ${MAX_IMAGES} images allowed` }));
+      setError(`Maximum ${MAX_IMAGES} images allowed`);
       return;
     }
 
-    const newFiles = Array.from(files).slice(0, remaining);
-    setPendingFiles((prev) => [...prev, ...newFiles]);
+    const incoming = Array.from(files).slice(0, remaining);
+    const validFiles: File[] = [];
+
+    for (const file of incoming) {
+      if (!file.type.startsWith("image/")) {
+        setFieldErrors((prev) => ({ ...prev, images: "Only image files are allowed" }));
+        setError("Only image files are allowed");
+        continue;
+      }
+      if (file.size > MAX_FILE_SIZE) {
+        setFieldErrors((prev) => ({ ...prev, images: "Each image must be smaller than 5MB" }));
+        setError("Each image must be smaller than 5MB");
+        continue;
+      }
+      validFiles.push(file);
+    }
+
+    if (validFiles.length === 0) return;
+
+    setFieldErrors((prev) => ({ ...prev, images: undefined }));
+    setPendingFiles((prev) => [...prev, ...validFiles]);
+    setError(null);
 
     if (fileInputRef.current) {
       fileInputRef.current.value = "";
@@ -97,15 +135,75 @@ export default function AddClientPage() {
     return Math.round(num * 100);
   };
 
-  // Create item
-  const handlePublish = async () => {
-    if (!title.trim()) {
-      setError("Please enter an item name");
-      return;
+  const clearFieldError = (field: keyof FieldErrors) => {
+    setFieldErrors((prev) => ({ ...prev, [field]: undefined }));
+  };
+
+  const validateForm = () => {
+    const nextErrors: FieldErrors = {};
+
+    const titleTrimmed = title.trim();
+    const descriptionTrimmed = description.trim();
+    const brandTrimmed = brand.trim();
+    const parsedHashtags = parseHashtags(hashtags);
+    const parsedPrice = price.trim() ? parsePrice(price) : undefined;
+
+    if (!titleTrimmed) {
+      nextErrors.title = "Please enter an item name";
+    } else if (titleTrimmed.length > MAX_TITLE_LENGTH) {
+      nextErrors.title = `Item name must be ${MAX_TITLE_LENGTH} characters or fewer`;
     }
 
     if (pendingFiles.length === 0) {
-      setError("Please add at least one image");
+      nextErrors.images = "Please add at least one image";
+    } else if (pendingFiles.length > MAX_IMAGES) {
+      nextErrors.images = `Maximum ${MAX_IMAGES} images allowed`;
+    }
+
+    if (category && !CATEGORIES.includes(category)) {
+      nextErrors.category = "Please select a valid category";
+    }
+
+    if (brandTrimmed.length > MAX_BRAND_LENGTH) {
+      nextErrors.brand = `Brand must be ${MAX_BRAND_LENGTH} characters or fewer`;
+    }
+
+    if (descriptionTrimmed.length > MAX_DESCRIPTION_LENGTH) {
+      nextErrors.description = `Description must be ${MAX_DESCRIPTION_LENGTH} characters or fewer`;
+    }
+
+    if (parsedHashtags.length > MAX_HASHTAGS) {
+      nextErrors.hashtags = `You can add up to ${MAX_HASHTAGS} hashtags`;
+    } else if (parsedHashtags.some((tag) => tag.length > MAX_HASHTAG_LENGTH)) {
+      nextErrors.hashtags = `Each hashtag must be ${MAX_HASHTAG_LENGTH} characters or fewer`;
+    }
+
+    if (price.trim() && parsedPrice === undefined) {
+      nextErrors.price = "Please enter a valid price";
+    } else if (parsedPrice !== undefined && (parsedPrice < 0 || parsedPrice > MAX_PRICE_MINOR)) {
+      nextErrors.price = "Price is out of allowed range";
+    }
+
+    return {
+      isValid: Object.keys(nextErrors).length === 0,
+      errors: nextErrors,
+      normalized: {
+        title: titleTrimmed,
+        description: descriptionTrimmed || undefined,
+        brand: brandTrimmed || undefined,
+        hashtags: parsedHashtags,
+        priceMinor: parsedPrice,
+      },
+    };
+  };
+
+  // Create item
+  const handlePublish = async () => {
+    const validation = validateForm();
+    if (!validation.isValid) {
+      setFieldErrors(validation.errors);
+      const firstError = Object.values(validation.errors).find(Boolean);
+      setError(firstError || "Please check required fields");
       return;
     }
 
@@ -139,14 +237,14 @@ export default function AddClientPage() {
 
       // Create the item
       const result = await createItem({
-        title: title.trim(),
-        description: description.trim() || undefined,
+        title: validation.normalized.title,
+        description: validation.normalized.description,
         visibility,
         imageUrls: uploadedUrls,
         category: category || undefined,
-        brand: brand.trim() || undefined,
-        hashtags: parseHashtags(hashtags),
-        priceMinor: parsePrice(price),
+        brand: validation.normalized.brand,
+        hashtags: validation.normalized.hashtags,
+        priceMinor: validation.normalized.priceMinor,
         priceCurrency: "USD",
       });
 
@@ -169,8 +267,8 @@ export default function AddClientPage() {
     private: "Private: only visible to you",
   };
 
-  const inputClass =
-    "w-full rounded-xl border border-neutral-200 bg-white px-4 py-3 text-sm outline-none placeholder:text-neutral-400 focus:border-neutral-300 dark:border-neutral-800 dark:bg-black dark:placeholder:text-neutral-600 dark:focus:border-neutral-700";
+  const getInputClass = (field?: keyof FieldErrors) =>
+    uiInputClass({ invalid: !!(field && fieldErrors[field]) });
 
   return (
     <div className="mx-auto w-full max-w-3xl px-4 py-6">
@@ -195,16 +293,16 @@ export default function AddClientPage() {
       {/* Content */}
       <div className="rounded-2xl border border-neutral-200 bg-white p-5 dark:border-neutral-800 dark:bg-neutral-950">
         {error && (
-          <div className="mb-4 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-800 dark:border-red-900/40 dark:bg-red-950/30 dark:text-red-200">
+          <Alert tone="error" className="mb-4">
             {error}
-          </div>
+          </Alert>
         )}
 
         <div className="grid gap-4">
           {/* Image Management */}
           <div>
-            <label className="mb-1.5 block text-xs text-neutral-500 dark:text-neutral-400">
-              Images ({pendingFiles.length}/5)
+            <label className={UI_FIELD_LABEL}>
+              Images ({pendingFiles.length}/{MAX_IMAGES})
             </label>
 
             {/* Primary Image */}
@@ -236,7 +334,7 @@ export default function AddClientPage() {
                   className="flex aspect-video cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed border-neutral-200 bg-neutral-50 text-neutral-400 transition-colors hover:border-neutral-300 hover:bg-neutral-100 dark:border-neutral-800 dark:bg-neutral-900 dark:hover:border-neutral-700"
                 >
                   <Plus className="mb-2 h-8 w-8" />
-                  <span className="text-sm">Add primary image</span>
+                    <span className="text-sm">Add primary image</span>
                 </div>
               )}
             </div>
@@ -277,7 +375,7 @@ export default function AddClientPage() {
               ))}
 
               {/* Add more button */}
-              {pendingFiles.length < 5 && pendingFiles.length > 0 && (
+              {pendingFiles.length < MAX_IMAGES && pendingFiles.length > 0 && (
                 <button
                   type="button"
                   onClick={() => fileInputRef.current?.click()}
@@ -297,17 +395,24 @@ export default function AddClientPage() {
               onChange={handleAddImages}
               className="hidden"
             />
+            {fieldErrors.images && (
+              <p className={UI_FIELD_ERROR}>{fieldErrors.images}</p>
+            )}
           </div>
 
           {/* Category */}
           <div>
-            <label className="mb-1.5 block text-xs text-neutral-500 dark:text-neutral-400">
+            <label className={UI_FIELD_LABEL}>
               Category
             </label>
             <select
               value={category}
-              onChange={(e) => setCategory(e.target.value)}
-              className={inputClass}
+              onChange={(e) => {
+                setCategory(e.target.value);
+                clearFieldError("category");
+                setError(null);
+              }}
+              className={getInputClass("category")}
             >
               <option value="">Select category</option>
               {CATEGORIES.map((cat) => (
@@ -316,78 +421,116 @@ export default function AddClientPage() {
                 </option>
               ))}
             </select>
+            {fieldErrors.category && (
+              <p className={UI_FIELD_ERROR}>{fieldErrors.category}</p>
+            )}
           </div>
 
           {/* Brand */}
           <div>
-            <label className="mb-1.5 block text-xs text-neutral-500 dark:text-neutral-400">
+            <label className={UI_FIELD_LABEL}>
               Brand
             </label>
             <input
               value={brand}
-              onChange={(e) => setBrand(e.target.value)}
+              onChange={(e) => {
+                setBrand(e.target.value);
+                clearFieldError("brand");
+                setError(null);
+              }}
               placeholder="HERMÈS"
-              className={inputClass}
+              className={getInputClass("brand")}
             />
+            {fieldErrors.brand && (
+              <p className={UI_FIELD_ERROR}>{fieldErrors.brand}</p>
+            )}
           </div>
 
           {/* Item name */}
           <div>
-            <label className="mb-1.5 block text-xs text-neutral-500 dark:text-neutral-400">
+            <label className={UI_FIELD_LABEL}>
               Item name
             </label>
             <input
               value={title}
-              onChange={(e) => setTitle(e.target.value)}
+              onChange={(e) => {
+                setTitle(e.target.value);
+                clearFieldError("title");
+                setError(null);
+              }}
               placeholder="Birkin 25"
-              maxLength={100}
-              className={inputClass}
+              maxLength={MAX_TITLE_LENGTH}
+              className={getInputClass("title")}
             />
+            {fieldErrors.title && (
+              <p className={UI_FIELD_ERROR}>{fieldErrors.title}</p>
+            )}
           </div>
 
           {/* Description */}
           <div>
-            <label className="mb-1.5 block text-xs text-neutral-500 dark:text-neutral-400">
+            <label className={UI_FIELD_LABEL}>
               Description
             </label>
             <textarea
               value={description}
-              onChange={(e) => setDescription(e.target.value)}
+              onChange={(e) => {
+                setDescription(e.target.value);
+                clearFieldError("description");
+                setError(null);
+              }}
               placeholder="Description (optional)"
-              maxLength={500}
-              className={`${inputClass} min-h-20 resize-none`}
+              maxLength={MAX_DESCRIPTION_LENGTH}
+              className={`${getInputClass("description")} min-h-20 resize-none`}
             />
+            {fieldErrors.description && (
+              <p className={UI_FIELD_ERROR}>{fieldErrors.description}</p>
+            )}
           </div>
 
           {/* Hashtags */}
           <div>
-            <label className="mb-1.5 block text-xs text-neutral-500 dark:text-neutral-400">
+            <label className={UI_FIELD_LABEL}>
               Hashtags
             </label>
             <input
               value={hashtags}
-              onChange={(e) => setHashtags(e.target.value)}
+              onChange={(e) => {
+                setHashtags(e.target.value);
+                clearFieldError("hashtags");
+                setError(null);
+              }}
               placeholder="#luxury #birkin"
-              className={inputClass}
+              className={getInputClass("hashtags")}
             />
+            {fieldErrors.hashtags && (
+              <p className={UI_FIELD_ERROR}>{fieldErrors.hashtags}</p>
+            )}
           </div>
 
           {/* Price */}
           <div>
-            <label className="mb-1.5 block text-xs text-neutral-500 dark:text-neutral-400">
+            <label className={UI_FIELD_LABEL}>
               Price
             </label>
             <input
               value={price}
-              onChange={(e) => setPrice(e.target.value)}
+              onChange={(e) => {
+                setPrice(e.target.value);
+                clearFieldError("price");
+                setError(null);
+              }}
               placeholder="$16,000 (optional)"
-              className={inputClass}
+              className={getInputClass("price")}
             />
+            {fieldErrors.price && (
+              <p className={UI_FIELD_ERROR}>{fieldErrors.price}</p>
+            )}
           </div>
 
           {/* Visibility */}
           <div>
-            <label className="mb-1.5 block text-xs text-neutral-500 dark:text-neutral-400">
+            <label className={UI_FIELD_LABEL}>
               Visibility
             </label>
             <Segmented
@@ -405,14 +548,15 @@ export default function AddClientPage() {
           </div>
 
           {/* Publish Button */}
-          <button
-            type="button"
+          <Button
             onClick={handlePublish}
             disabled={!title.trim() || pendingFiles.length === 0 || loading}
-            className="w-full rounded-xl bg-violet-600 py-3.5 text-sm font-semibold text-white transition-colors hover:bg-violet-500 disabled:opacity-50 dark:bg-violet-500 dark:hover:bg-violet-400"
+            variant="primary"
+            size="lg"
+            fullWidth
           >
             {uploading ? "Uploading images..." : loading ? "Creating..." : "Publish"}
-          </button>
+          </Button>
         </div>
       </div>
     </div>

@@ -41,7 +41,12 @@
   "profile": {
     "bio": "Bio",
     "items": "Items",
-    "noItems": "No items registered yet."
+    "noItems": "No items registered yet.",
+    "sortBy": "Sort",
+    "sortLatest": "Latest",
+    "sortOldest": "Oldest",
+    "sortLikes": "Most liked",
+    "noItemsInCategory": "No items in this category."
   },
   "item": {
     "description": "Description",
@@ -59,7 +64,19 @@
     "people": "People",
     "items": "Items",
     "noResults": "No results found.",
-    "error": "Error loading results."
+    "error": "Error loading results.",
+    "filters": "Filters",
+    "sortBy": "Sort by",
+    "category": "Category",
+    "sortLatest": "Latest",
+    "sortOldest": "Oldest",
+    "sortLikes": "Most liked",
+    "categoryAll": "All",
+    "categoryLuxury": "Luxury",
+    "categoryAccessories": "Accessories",
+    "categoryCars": "Cars",
+    "categoryRealEstate": "Real Estate",
+    "clearFilters": "Clear filters"
   },
   "auth": {
     "title": "Sign in",
@@ -68,8 +85,81 @@
   "settings": {
     "title": "Settings",
     "subtitle": "Theme: System / Light / Dark.",
+    "language": "Language",
+    "profileSection": "Profile",
+    "editProfile": "Edit Profile",
+    "accountSection": "Account",
+    "emailLabel": "Email",
+    "otherSection": "Other",
     "theme": "Theme (already in top bar)",
     "dmSettings": "DM settings (followers-only toggle)",
-    "privacy": "Privacy + blocks"
+    "privacy": "Privacy + blocks",
+    "signIn": "Sign in",
+    "signOut": "Sign out"
+  },
+  "notifications": {
+    "title": "Notifications",
+    "subtitle": "Check your latest activity",
+    "clearConfirm": "Delete all notifications?",
+    "someone": "Someone",
+    "itemFallback": "item",
+    "newNotification": "New notification",
+    "empty": "No notifications",
+    "unreadCount": "{count} unread notifications",
+    "allRead": "All notifications are read",
+    "markAllRead": "Mark all read",
+    "clearAll": "Clear all",
+    "markRead": "Mark as read",
+    "delete": "Delete",
+    "justNow": "Just now",
+    "minutesAgo": "{count}m ago",
+    "hoursAgo": "{count}h ago",
+    "daysAgo": "{count}d ago",
+    "types": {
+      "follow": "{actor} followed you",
+      "like": "{actor} liked \"{item}\"",
+      "comment": "{actor} commented on \"{item}\"",
+      "dm": "{actor} sent you a message",
+      "dmRequest": "{actor} sent you a message request"
+    }
+  },
+  "dm": {
+    "title": "Messages",
+    "subtitle": "Inbox",
+    "requests": "Requests",
+    "emptyTitle": "No messages yet",
+    "emptyDescription": "Start a conversation from a profile's Message button",
+    "justNow": "Just now",
+    "minutesAgo": "{count}m",
+    "hoursAgo": "{count}h",
+    "daysAgo": "{count}d"
+  },
+  "followers": {
+    "title": "Followers",
+    "subtitle": "@{handle}'s followers",
+    "backToProfile": "Back to profile",
+    "noFollowers": "No followers yet",
+    "remove": "Remove",
+    "removing": "Removing..."
+  },
+  "following": {
+    "title": "Following",
+    "subtitle": "People @{handle} follows",
+    "backToProfile": "Back to profile",
+    "noFollowing": "Not following anyone yet",
+    "unfollow": "Unfollow",
+    "unfollowing": "Unfollowing..."
+  },
+  "error": {
+    "title": "Something went wrong",
+    "description": "An unexpected error occurred. Please try again.",
+    "retry": "Try again",
+    "goHome": "Go home"
+  },
+  "notFound": {
+    "title": "Page not found",
+    "description": "The page you're looking for doesn't exist or has been moved.",
+    "goHome": "Go home",
+    "goBack": "Go back"
   }
 }

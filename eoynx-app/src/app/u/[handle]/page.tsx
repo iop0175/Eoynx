@@ -1,9 +1,12 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
+import { getTranslations } from "next-intl/server";
 
 import { getProfileByHandle, getProfileStats, listItemsByOwner } from "@/lib/db";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { checkIsFollowing } from "@/app/actions/social";
+import { calculateUserPercentile } from "@/app/actions/percentile";
+import { checkIsBlocked } from "@/app/actions/safety";
 import { ProfileClient, type ProfileItem } from "./profile-client";
 
 type Props = {
@@ -28,21 +31,23 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
       title,
       description,
       type: "profile",
-      url: `/u/${handle}`,
-      images: profile?.avatar_url ? [{ url: profile.avatar_url }] : undefined,
+      url: `https://eoynx.com/u/${handle}`,
+      siteName: "EOYNX",
     },
     twitter: {
       card: "summary_large_image",
       title,
       description,
-      images: profile?.avatar_url ? [profile.avatar_url] : undefined,
     },
   };
 }
 
 export default async function ProfilePage({ params }: Props) {
   const { handle } = await params;
-  const { data: profile, error } = await getProfileByHandle(handle);
+  const [{ data: profile, error }, t] = await Promise.all([
+    getProfileByHandle(handle),
+    getTranslations("profile"),
+  ]);
 
   if (error || !profile) notFound();
 
@@ -57,9 +62,15 @@ export default async function ProfilePage({ params }: Props) {
     ? await checkIsFollowing(profile.id)
     : { isFollowing: false };
 
-  const [stats, { data: items }] = await Promise.all([
+  // Check if current user has blocked this profile
+  const { isBlocked } = !isOwner && user
+    ? await checkIsBlocked(profile.id)
+    : { isBlocked: false };
+
+  const [stats, { data: items }, percentileData] = await Promise.all([
     getProfileStats(profile.id),
     listItemsByOwner(profile.id),
+    calculateUserPercentile(profile.id),
   ]);
 
   // Map items to ProfileItem format
@@ -86,12 +97,21 @@ export default async function ProfilePage({ params }: Props) {
         items: stats.items,
         followers: stats.followers,
         following: stats.following,
-        rank: 8, // TODO: calculate actual rank
+        rank: percentileData.overallPercentile,
       }}
+      categoryPercentiles={percentileData.categoryPercentiles}
       items={profileItems}
       isOwner={isOwner}
       isFollowing={isFollowing}
       isLoggedIn={isLoggedIn}
+      isBlocked={isBlocked}
+      translations={{
+        sortBy: t("sortBy"),
+        sortLatest: t("sortLatest"),
+        sortOldest: t("sortOldest"),
+        sortLikes: t("sortLikes"),
+        noItemsInCategory: t("noItemsInCategory"),
+      }}
     />
   );
 }

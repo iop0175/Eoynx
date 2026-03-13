@@ -2,7 +2,9 @@
 
 import * as React from "react";
 import { PageShell } from "@/components/page-shell";
+import { Button } from "@/components/ui/button";
 import { Segmented } from "@/components/ui/segmented";
+import { UI_FIELD_LABEL, UI_INPUT_BASE } from "@/components/ui/ui-classes";
 
 export default function AddDetailsClientPage() {
   const [visibility, setVisibility] = React.useState("public");
@@ -11,7 +13,7 @@ export default function AddDetailsClientPage() {
     <PageShell title="Add Details" subtitle="Visibility + metadata.">
       <div className="grid gap-4">
         <div>
-          <div className="mb-2 text-xs text-neutral-500 dark:text-neutral-400">Visibility</div>
+          <div className={UI_FIELD_LABEL}>Visibility</div>
           <Segmented
             value={visibility}
             onChange={setVisibility}
@@ -26,20 +28,17 @@ export default function AddDetailsClientPage() {
         <div className="grid gap-2">
           <input
             placeholder="Title"
-            className="w-full rounded-xl border border-neutral-200 bg-white px-4 py-3 text-sm outline-none placeholder:text-neutral-400 focus:border-neutral-300 dark:border-neutral-800 dark:bg-black dark:focus:border-neutral-700"
+            className={UI_INPUT_BASE}
           />
           <textarea
             placeholder="Description"
-            className="min-h-28 w-full rounded-xl border border-neutral-200 bg-white px-4 py-3 text-sm outline-none placeholder:text-neutral-400 focus:border-neutral-300 dark:border-neutral-800 dark:bg-black dark:focus:border-neutral-700"
+            className={`${UI_INPUT_BASE} min-h-28`}
           />
         </div>
 
-        <button
-          type="button"
-          className="rounded-xl bg-neutral-900 px-4 py-3 text-sm font-medium text-white hover:bg-neutral-800 dark:bg-white dark:text-black dark:hover:bg-neutral-200"
-        >
+        <Button variant="neutral" className="py-3">
           Publish (skeleton)
-        </button>
+        </Button>
       </div>
     </PageShell>
   );
