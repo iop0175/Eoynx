@@ -1,0 +1,5 @@
+﻿start=2026-03-16T22:09:06.0800509+09:00
+package=com.anonymous.eoynxmobile
+durationMinutes=15
+sampleIntervalSeconds=30
+end=2026-03-16T22:24:19.4320973+09:00

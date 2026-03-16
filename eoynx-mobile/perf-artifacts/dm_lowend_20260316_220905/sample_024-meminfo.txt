@@ -1,0 +1,59 @@
+﻿Applications Memory Usage (in Kilobytes):
+Uptime: 11667891 Realtime: 11667891
+
+** MEMINFO in pid 5733 [com.anonymous.eoynxmobile] **
+                   Pss  Private  Private  SwapPss      Rss     Heap     Heap     Heap
+                 Total    Dirty    Clean    Dirty    Total     Size    Alloc     Free
+                ------   ------   ------   ------   ------   ------   ------   ------
+  Native Heap   170609   121532    49044   225402   171604   428388   401887    21444
+  Dalvik Heap    25903    20728     5004      183    26632    40956    20478    20478
+ Dalvik Other    10308     6764      156      195    13880                           
+        Stack     3392     3304       88     1336     3400                           
+       Ashmem       10        4        0        0      280                           
+    Other dev        8        0        8        0      284                           
+     .so mmap     2732      120      460      360    27396                           
+    .jar mmap     3930        0     1000        0    30364                           
+    .apk mmap    18957      196    17448     1132    23560                           
+    .ttf mmap      303        0      180        0      592                           
+    .dex mmap       12        0        0        4      600                           
+    .oat mmap       69        0        0        0     1464                           
+    .art mmap     7074     1656     4528     2227    18672                           
+   Other mmap      110       52        4        0      560                           
+      Unknown    62756    47036    15712    26204    63084                           
+        TOTAL   563216   201392    93632   257043   382372   469344   422365    41922
+ 
+ App Summary
+                       Pss(KB)                        Rss(KB)
+                        ------                         ------
+           Java Heap:    26912                          45304
+         Native Heap:   121532                         171604
+                Code:    19580                          90920
+               Stack:     3304                           3400
+            Graphics:        0                              0
+       Private Other:   123696
+              System:   268192
+             Unknown:                                   71144
+ 
+           TOTAL PSS:   563216            TOTAL RSS:   382372       TOTAL SWAP PSS:   257043
+ 
+ Objects
+               Views:      996         ViewRootImpl:        1
+         AppContexts:        5           Activities:        1
+              Assets:       20        AssetManagers:        0
+       Local Binders:       69        Proxy Binders:       55
+       Parcel memory:       20         Parcel count:       69
+    Death Recipients:        0             WebViews:        0
+ 
+ SQL
+         MEMORY_USED:      169
+  PAGECACHE_OVERFLOW:       50          MALLOC_SIZE:       46
+ 
+ DATABASES
+      pgsz     dbsz   Lookaside(b) cache hits cache misses cache size  Dbname
+PER CONNECTION STATS
+         4       20             27    11    89     2  /data/user/0/com.anonymous.eoynxmobile/databases/RKStorage
+         4       32             51    12    90     5  /data/user/0/com.anonymous.eoynxmobile/databases/exoplayer_internal.db
+POOL STATS
+     cache hits  cache misses    cache size  Dbname
+             11            90           101  /data/user/0/com.anonymous.eoynxmobile/databases/RKStorage
+             12            91           103  /data/user/0/com.anonymous.eoynxmobile/databases/exoplayer_internal.db
