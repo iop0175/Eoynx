@@ -20,7 +20,15 @@ import { decode } from "base64-arraybuffer";
 import { Image as ExpoImage } from "expo-image";
 import { useI18n } from "../../i18n";
 import { supabase } from "../../lib/supabase";
-import { canUseWebCrypto, decryptWithRoomKey, encryptWithRoomKey, importRoomKey } from "../../lib/dmCrypto";
+import {
+  decryptRoomKeyWithPrivateKey,
+  encryptRoomKeyForPublicKey,
+  exportPublicKeyJwk,
+  generateEncryptionKeyPair,
+  loadPrivateKey,
+  savePrivateKey,
+} from "../../lib/encryptionKeys";
+import { canUseWebCrypto, decryptWithRoomKey, encryptWithRoomKey, generateDMRoomKey, importRoomKey } from "../../lib/dmCrypto";
 import type { FeedStackParamList } from "../../navigation/types";
 import { webUi } from "../../theme/webUi";
 import type { Item } from "../../types/item";
@@ -117,6 +125,7 @@ export function DMThreadScreen({ route, navigation }: Props) {
   const initializedMessagesRef = useRef(false);
   const lastMessageIdRef = useRef<string | null>(null);
   const didInitialScrollRef = useRef(false);
+  const didWarnImageLoadRef = useRef(false);
 
   useEffect(() => {
     void loadMessages();
@@ -147,17 +156,15 @@ export function DMThreadScreen({ route, navigation }: Props) {
           event: "*",
           schema: "public",
           table: "dm_messages",
+          filter: `thread_id=eq.${threadId}`,
         },
         (payload: any) => {
-          const payloadThreadId = payload?.new?.thread_id ?? payload?.old?.thread_id ?? null;
-          if (payloadThreadId !== threadId) return;
           scheduleReload();
         }
       )
       .subscribe((status) => {
         const connected = status === "SUBSCRIBED";
         setRealtimeReady(connected);
-        console.log("[DM Realtime] status=", status, "threadId=", threadId);
       });
 
     const threadChannel = supabase
@@ -172,9 +179,7 @@ export function DMThreadScreen({ route, navigation }: Props) {
         },
         scheduleReload
       )
-      .subscribe((status) => {
-        console.log("[DM Realtime] meta status=", status, "threadId=", threadId);
-      });
+      .subscribe();
 
     return () => {
       if (reloadTimerRef.current) {
@@ -245,7 +250,7 @@ export function DMThreadScreen({ route, navigation }: Props) {
     if (!storedValue.startsWith("http://") && !storedValue.startsWith("https://")) {
       const { data, error } = await supabase.storage.from("dm-attachments").createSignedUrl(storedValue, 60 * 60 * 24 * 7);
       if (error || !data?.signedUrl) {
-        console.log("[DM Image] signed URL failed", { path: storedValue, error: error?.message ?? null });
+        console.warn("[DM Image] signed URL failed", { path: storedValue, error: error?.message ?? null });
         return null;
       }
       return data.signedUrl;
@@ -259,7 +264,7 @@ export function DMThreadScreen({ route, navigation }: Props) {
     if (!path) return storedValue;
     const { data, error } = await supabase.storage.from("dm-attachments").createSignedUrl(path, 60 * 60 * 24 * 7);
     if (error || !data?.signedUrl) {
-      console.log("[DM Image] signed URL failed", { path, error: error?.message ?? null });
+      console.warn("[DM Image] signed URL failed", { path, error: error?.message ?? null });
       return storedValue;
     }
     return data.signedUrl;
@@ -279,7 +284,7 @@ export function DMThreadScreen({ route, navigation }: Props) {
 
     const { data: threadData, error: threadError } = await supabase
       .from("dm_threads")
-      .select("room_key")
+      .select("participant1_id,participant2_id,encrypted_key_for_p1,encrypted_key_for_p2")
       .eq("id", threadId)
       .maybeSingle();
 
@@ -288,10 +293,62 @@ export function DMThreadScreen({ route, navigation }: Props) {
       Alert.alert(t("alert.loadError"), threadError.message);
       return;
     }
-    const resolvedRoomKey = threadData?.room_key ?? null;
+    let resolvedRoomKey: string | null = null;
+    const isParticipant1 = threadData?.participant1_id === uid;
+    const myEncryptedRoomKey = isParticipant1
+      ? (threadData?.encrypted_key_for_p1 ?? null)
+      : (threadData?.encrypted_key_for_p2 ?? null);
+
+    if (myEncryptedRoomKey) {
+      try {
+        const privateKey = await loadPrivateKey(uid);
+        if (privateKey) {
+          resolvedRoomKey = await decryptRoomKeyWithPrivateKey(privateKey, myEncryptedRoomKey);
+        }
+      } catch {
+        try {
+          // Local private key and server public key can drift; resync keypair first.
+          const nextPair = await generateEncryptionKeyPair();
+          await savePrivateKey(uid, nextPair.privateKey);
+          const nextPublicJwk = await exportPublicKeyJwk(nextPair.publicKey);
+          await supabase
+            .from("profiles")
+            .update({ encryption_public_key: nextPublicJwk })
+            .eq("id", uid);
+
+          const { data: participantProfiles } = await supabase
+            .from("profiles")
+            .select("id,encryption_public_key")
+            .in("id", [threadData?.participant1_id ?? "", threadData?.participant2_id ?? ""]);
+
+          const p1 = participantProfiles?.find((p) => p.id === threadData?.participant1_id);
+          const p2 = participantProfiles?.find((p) => p.id === threadData?.participant2_id);
+          const nextRoomKey = generateDMRoomKey();
+
+          if (p1?.encryption_public_key && p2?.encryption_public_key && nextRoomKey) {
+            const encryptedForP1 = await encryptRoomKeyForPublicKey(p1.encryption_public_key, nextRoomKey);
+            const encryptedForP2 = await encryptRoomKeyForPublicKey(p2.encryption_public_key, nextRoomKey);
+
+            await supabase
+              .from("dm_threads")
+              .update({
+                encrypted_key_for_p1: encryptedForP1,
+                encrypted_key_for_p2: encryptedForP2,
+              })
+              .eq("id", threadId);
+
+            resolvedRoomKey = nextRoomKey;
+          } else {
+            resolvedRoomKey = null;
+          }
+        } catch {
+          resolvedRoomKey = null;
+        }
+      }
+    }
+
     const importedRoomKey = resolvedRoomKey ? await importRoomKey(resolvedRoomKey) : null;
     setRoomCryptoKey(importedRoomKey);
-    console.log("[DM Crypto] subtle=", canUseWebCrypto(), "roomKey=", Boolean(resolvedRoomKey), "imported=", Boolean(importedRoomKey));
 
     const { data, error } = await supabase
       .from("dm_messages")
@@ -317,6 +374,7 @@ export function DMThreadScreen({ route, navigation }: Props) {
       read_at: string | null;
     }>;
 
+    let decryptFailureCount = 0;
     const nextMessages: Message[] = await Promise.all(
       rows.map(async (row) => {
         let content = row.encrypted_content ?? "";
@@ -326,7 +384,7 @@ export function DMThreadScreen({ route, navigation }: Props) {
             : null;
           content = decrypted ?? t("dm.encryptedMessage");
           if (!decrypted) {
-            console.log("[DM Crypto] decrypt failed", { messageId: row.id, hasIv: Boolean(row.iv) });
+            decryptFailureCount += 1;
           }
         } else if (row.is_encrypted) {
           content = t("dm.encryptedMessage");
@@ -343,6 +401,14 @@ export function DMThreadScreen({ route, navigation }: Props) {
         };
       })
     );
+
+    if (decryptFailureCount > 0) {
+      console.warn("[DM Crypto] decrypt failed", {
+        threadId,
+        failedCount: decryptFailureCount,
+        total: rows.length,
+      });
+    }
 
     setMessages((prev) => (areMessagesEqual(prev, nextMessages) ? prev : nextMessages));
     if (!silent) setLoading(false);
@@ -742,7 +808,10 @@ export function DMThreadScreen({ route, navigation }: Props) {
                   source={{ uri: item.image_url }}
                   style={styles.messageImage}
                   onError={() => {
-                    console.log("[DM Image] message load failed", item.image_url);
+                    if (!didWarnImageLoadRef.current) {
+                      didWarnImageLoadRef.current = true;
+                      console.warn("[DM Image] message load failed", item.image_url);
+                    }
                   }}
                 />
               ) : null}
