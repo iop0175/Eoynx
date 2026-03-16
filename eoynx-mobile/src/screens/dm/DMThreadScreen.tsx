@@ -2,9 +2,12 @@ import { useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  AppState,
+  AppStateStatus,
   FlatList,
   Image,
   Linking,
+  Modal,
   NativeScrollEvent,
   NativeSyntheticEvent,
   Pressable,
@@ -19,6 +22,7 @@ import * as FileSystemLegacy from "expo-file-system/legacy";
 import { decode } from "base64-arraybuffer";
 import { Image as ExpoImage } from "expo-image";
 import { useI18n } from "../../i18n";
+import { getRequestErrorMessage, runRequestWithPolicy } from "../../lib/requestPolicy";
 import { supabase } from "../../lib/supabase";
 import {
   decryptRoomKeyWithPrivateKey,
@@ -103,6 +107,7 @@ function parseSharedItemMessage(raw: string) {
 
 export function DMThreadScreen({ route, navigation }: Props) {
   const { t } = useI18n();
+  const language = "ko" as const;
   const { threadId, otherHandle, otherName, otherAvatarUrl, prefillText } = route.params;
   const [loading, setLoading] = useState(true);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -111,6 +116,7 @@ export function DMThreadScreen({ route, navigation }: Props) {
   const [userId, setUserId] = useState<string | null>(null);
   const [roomCryptoKey, setRoomCryptoKey] = useState<CryptoKey | null>(null);
   const [realtimeReady, setRealtimeReady] = useState(false);
+  const [appActive, setAppActive] = useState(true);
   const [selectedImageUri, setSelectedImageUri] = useState<string | null>(null);
   const [selectedImageMimeType, setSelectedImageMimeType] = useState("image/jpeg");
   const [incomingBadgeCount, setIncomingBadgeCount] = useState(0);
@@ -118,6 +124,11 @@ export function DMThreadScreen({ route, navigation }: Props) {
   const [highlightedMessageId, setHighlightedMessageId] = useState<string | null>(null);
   const [sharedItemPreviews, setSharedItemPreviews] = useState<Record<string, SharedItemPreview>>({});
   const [openingProfile, setOpeningProfile] = useState(false);
+  const [policyModal, setPolicyModal] = useState<{ visible: boolean; title: string; message: string }>({
+    visible: false,
+    title: "",
+    message: "",
+  });
   const reloadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const highlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const listRef = useRef<FlatList<Message> | null>(null);
@@ -126,6 +137,7 @@ export function DMThreadScreen({ route, navigation }: Props) {
   const lastMessageIdRef = useRef<string | null>(null);
   const didInitialScrollRef = useRef(false);
   const didWarnImageLoadRef = useRef(false);
+  const lastDecryptWarnSignatureRef = useRef<string | null>(null);
 
   useEffect(() => {
     void loadMessages();
@@ -139,6 +151,16 @@ export function DMThreadScreen({ route, navigation }: Props) {
     if (!prefillText) return;
     setInput((prev) => (prev.trim().length > 0 ? prev : prefillText));
   }, [prefillText]);
+
+  useEffect(() => {
+    const onAppStateChange = (nextState: AppStateStatus) => {
+      setAppActive(nextState === "active");
+    };
+    const sub = AppState.addEventListener("change", onAppStateChange);
+    return () => {
+      sub.remove();
+    };
+  }, []);
 
   useEffect(() => {
     const scheduleReload = () => {
@@ -196,11 +218,12 @@ export function DMThreadScreen({ route, navigation }: Props) {
   }, [threadId]);
 
   useEffect(() => {
+    if (!appActive) return;
     const interval = setInterval(() => {
       void loadMessages({ silent: true });
-    }, realtimeReady ? 2000 : 1200);
+    }, realtimeReady ? 15000 : 3000);
     return () => clearInterval(interval);
-  }, [realtimeReady, threadId]);
+  }, [appActive, realtimeReady, threadId]);
 
   useEffect(() => {
     const sharedIds = Array.from(
@@ -217,10 +240,12 @@ export function DMThreadScreen({ route, navigation }: Props) {
 
     let cancelled = false;
     void (async () => {
-      const { data, error } = await supabase
-        .from("items")
-        .select("id,title,image_url,brand,category")
-        .in("id", missingIds);
+      const { data, error } = await runRequestWithPolicy(() =>
+        supabase
+          .from("items")
+          .select("id,title,image_url,brand,category")
+          .in("id", missingIds)
+      );
 
       if (cancelled || error || !data) return;
       setSharedItemPreviews((prev) => {
@@ -248,7 +273,9 @@ export function DMThreadScreen({ route, navigation }: Props) {
 
     // New format (web-compatible): image_url stores path like threadId/userId/file.jpg
     if (!storedValue.startsWith("http://") && !storedValue.startsWith("https://")) {
-      const { data, error } = await supabase.storage.from("dm-attachments").createSignedUrl(storedValue, 60 * 60 * 24 * 7);
+      const { data, error } = await runRequestWithPolicy(() =>
+        supabase.storage.from("dm-attachments").createSignedUrl(storedValue, 60 * 60 * 24 * 7)
+      );
       if (error || !data?.signedUrl) {
         console.warn("[DM Image] signed URL failed", { path: storedValue, error: error?.message ?? null });
         return null;
@@ -262,7 +289,9 @@ export function DMThreadScreen({ route, navigation }: Props) {
     if (idx < 0) return storedValue;
     const path = storedValue.slice(idx + marker.length).split("?")[0];
     if (!path) return storedValue;
-    const { data, error } = await supabase.storage.from("dm-attachments").createSignedUrl(path, 60 * 60 * 24 * 7);
+    const { data, error } = await runRequestWithPolicy(() =>
+      supabase.storage.from("dm-attachments").createSignedUrl(path, 60 * 60 * 24 * 7)
+    );
     if (error || !data?.signedUrl) {
       console.warn("[DM Image] signed URL failed", { path, error: error?.message ?? null });
       return storedValue;
@@ -273,24 +302,26 @@ export function DMThreadScreen({ route, navigation }: Props) {
   const loadMessages = async (options?: { silent?: boolean }) => {
     const silent = options?.silent ?? false;
     if (!silent) setLoading(true);
-    const { data: authData, error: authError } = await supabase.auth.getUser();
+    const { data: authData, error: authError } = await runRequestWithPolicy(() => supabase.auth.getUser());
     if (authError || !authData.user) {
       if (!silent) setLoading(false);
-      Alert.alert(t("alert.authError"), authError?.message ?? t("common.unknownError"));
+      Alert.alert(t("alert.authError"), getRequestErrorMessage(language, authError, t("common.unknownError")));
       return;
     }
     const uid = authData.user.id;
     setUserId(uid);
 
-    const { data: threadData, error: threadError } = await supabase
-      .from("dm_threads")
-      .select("participant1_id,participant2_id,encrypted_key_for_p1,encrypted_key_for_p2")
-      .eq("id", threadId)
-      .maybeSingle();
+    const { data: threadData, error: threadError } = await runRequestWithPolicy(() =>
+      supabase
+        .from("dm_threads")
+        .select("participant1_id,participant2_id,encrypted_key_for_p1,encrypted_key_for_p2")
+        .eq("id", threadId)
+        .maybeSingle()
+    );
 
     if (threadError) {
       if (!silent) setLoading(false);
-      Alert.alert(t("alert.loadError"), threadError.message);
+      Alert.alert(t("alert.loadError"), getRequestErrorMessage(language, threadError));
       return;
     }
     let resolvedRoomKey: string | null = null;
@@ -311,15 +342,31 @@ export function DMThreadScreen({ route, navigation }: Props) {
           const nextPair = await generateEncryptionKeyPair();
           await savePrivateKey(uid, nextPair.privateKey);
           const nextPublicJwk = await exportPublicKeyJwk(nextPair.publicKey);
-          await supabase
-            .from("profiles")
-            .update({ encryption_public_key: nextPublicJwk })
-            .eq("id", uid);
+          const updateKeyRes = await runRequestWithPolicy(() =>
+            supabase
+              .from("profiles")
+              .update({ encryption_public_key: nextPublicJwk })
+              .eq("id", uid)
+          );
 
-          const { data: participantProfiles } = await supabase
-            .from("profiles")
-            .select("id,encryption_public_key")
-            .in("id", [threadData?.participant1_id ?? "", threadData?.participant2_id ?? ""]);
+          if (updateKeyRes.error) {
+            resolvedRoomKey = null;
+            throw updateKeyRes.error;
+          }
+
+          const participantProfilesRes = await runRequestWithPolicy(() =>
+            supabase
+              .from("profiles")
+              .select("id,encryption_public_key")
+              .in("id", [threadData?.participant1_id ?? "", threadData?.participant2_id ?? ""])
+          );
+
+          if (participantProfilesRes.error) {
+            resolvedRoomKey = null;
+            throw participantProfilesRes.error;
+          }
+
+          const participantProfiles = participantProfilesRes.data;
 
           const p1 = participantProfiles?.find((p) => p.id === threadData?.participant1_id);
           const p2 = participantProfiles?.find((p) => p.id === threadData?.participant2_id);
@@ -329,15 +376,21 @@ export function DMThreadScreen({ route, navigation }: Props) {
             const encryptedForP1 = await encryptRoomKeyForPublicKey(p1.encryption_public_key, nextRoomKey);
             const encryptedForP2 = await encryptRoomKeyForPublicKey(p2.encryption_public_key, nextRoomKey);
 
-            await supabase
-              .from("dm_threads")
-              .update({
-                encrypted_key_for_p1: encryptedForP1,
-                encrypted_key_for_p2: encryptedForP2,
-              })
-              .eq("id", threadId);
+            const rotateKeyRes = await runRequestWithPolicy(() =>
+              supabase
+                .from("dm_threads")
+                .update({
+                  encrypted_key_for_p1: encryptedForP1,
+                  encrypted_key_for_p2: encryptedForP2,
+                })
+                .eq("id", threadId)
+            );
 
-            resolvedRoomKey = nextRoomKey;
+            if (rotateKeyRes.error) {
+              resolvedRoomKey = null;
+            } else {
+              resolvedRoomKey = nextRoomKey;
+            }
           } else {
             resolvedRoomKey = null;
           }
@@ -350,16 +403,18 @@ export function DMThreadScreen({ route, navigation }: Props) {
     const importedRoomKey = resolvedRoomKey ? await importRoomKey(resolvedRoomKey) : null;
     setRoomCryptoKey(importedRoomKey);
 
-    const { data, error } = await supabase
-      .from("dm_messages")
-      .select("id,sender_id,encrypted_content,is_encrypted,iv,image_url,created_at,read_at")
-      .eq("thread_id", threadId)
-      .order("created_at", { ascending: true })
-      .limit(200);
+    const { data, error } = await runRequestWithPolicy(() =>
+      supabase
+        .from("dm_messages")
+        .select("id,sender_id,encrypted_content,is_encrypted,iv,image_url,created_at,read_at")
+        .eq("thread_id", threadId)
+        .order("created_at", { ascending: true })
+        .limit(120)
+    );
 
     if (error) {
       if (!silent) setLoading(false);
-      Alert.alert(t("alert.loadError"), error.message);
+      Alert.alert(t("alert.loadError"), getRequestErrorMessage(language, error));
       return;
     }
 
@@ -375,50 +430,58 @@ export function DMThreadScreen({ route, navigation }: Props) {
     }>;
 
     let decryptFailureCount = 0;
-    const nextMessages: Message[] = await Promise.all(
-      rows.map(async (row) => {
-        let content = row.encrypted_content ?? "";
-        if (row.is_encrypted && row.encrypted_content && row.iv && importedRoomKey) {
-          const decrypted = importedRoomKey
-            ? await decryptWithRoomKey(importedRoomKey, row.encrypted_content, row.iv)
-            : null;
-          content = decrypted ?? t("dm.encryptedMessage");
-          if (!decrypted) {
-            decryptFailureCount += 1;
-          }
-        } else if (row.is_encrypted) {
-          content = t("dm.encryptedMessage");
+    const nextMessages: Message[] = [];
+    for (const row of rows) {
+      let content = row.encrypted_content ?? "";
+      if (row.is_encrypted && row.encrypted_content && row.iv && importedRoomKey) {
+        const decrypted = importedRoomKey
+          ? await decryptWithRoomKey(importedRoomKey, row.encrypted_content, row.iv)
+          : null;
+        content = decrypted ?? t("dm.encryptedMessage");
+        if (!decrypted) {
+          decryptFailureCount += 1;
         }
-        return {
-          id: row.id,
-          sender_id: row.sender_id,
-          content,
-          is_encrypted: Boolean(row.is_encrypted),
-          iv: row.iv,
-          image_url: await resolveMessageImageUrl(row.image_url),
-          created_at: row.created_at,
-          read_at: row.read_at,
-        };
-      })
-    );
+      } else if (row.is_encrypted) {
+        content = t("dm.encryptedMessage");
+      }
+
+      nextMessages.push({
+        id: row.id,
+        sender_id: row.sender_id,
+        content,
+        is_encrypted: Boolean(row.is_encrypted),
+        iv: row.iv,
+        image_url: await resolveMessageImageUrl(row.image_url),
+        created_at: row.created_at,
+        read_at: row.read_at,
+      });
+    }
 
     if (decryptFailureCount > 0) {
-      console.warn("[DM Crypto] decrypt failed", {
-        threadId,
-        failedCount: decryptFailureCount,
-        total: rows.length,
-      });
+      const signature = `${threadId}:${decryptFailureCount}/${rows.length}`;
+      if (lastDecryptWarnSignatureRef.current !== signature) {
+        console.warn("[DM Crypto] decrypt failed", {
+          threadId,
+          failedCount: decryptFailureCount,
+          total: rows.length,
+        });
+        lastDecryptWarnSignatureRef.current = signature;
+      }
+    } else {
+      lastDecryptWarnSignatureRef.current = null;
     }
 
     setMessages((prev) => (areMessagesEqual(prev, nextMessages) ? prev : nextMessages));
     if (!silent) setLoading(false);
 
-    await supabase
-      .from("dm_messages")
-      .update({ read_at: new Date().toISOString() })
-      .eq("thread_id", threadId)
-      .neq("sender_id", uid)
-      .is("read_at", null);
+    await runRequestWithPolicy(() =>
+      supabase
+        .from("dm_messages")
+        .update({ read_at: new Date().toISOString() })
+        .eq("thread_id", threadId)
+        .neq("sender_id", uid)
+        .is("read_at", null)
+    );
   };
 
   useEffect(() => {
@@ -479,6 +542,108 @@ export function DMThreadScreen({ route, navigation }: Props) {
     setLatestIncomingMessageId(null);
   };
 
+  const ensureDmRequestPolicyForSend = async (uid: string) => {
+    const { data: threadMeta, error: threadMetaError } = await runRequestWithPolicy(() =>
+      supabase
+        .from("dm_threads")
+        .select("participant1_id,participant2_id")
+        .eq("id", threadId)
+        .maybeSingle()
+    );
+
+    if (threadMetaError || !threadMeta) {
+      return { ok: false, message: getRequestErrorMessage(language, threadMetaError, t("common.unknownError")) };
+    }
+
+    const otherId = threadMeta.participant1_id === uid ? threadMeta.participant2_id : threadMeta.participant1_id;
+    if (!otherId) {
+      return { ok: false, message: t("common.unknownError") };
+    }
+
+    const { data: pendingBetween, error: pendingError } = await runRequestWithPolicy(() =>
+      supabase
+        .from("dm_requests")
+        .select("id,status")
+        .eq("status", "pending")
+        .or(`and(from_user_id.eq.${uid},to_user_id.eq.${otherId}),and(from_user_id.eq.${otherId},to_user_id.eq.${uid})`)
+        .limit(1)
+        .maybeSingle()
+    );
+
+    if (pendingError) {
+      return { ok: false, message: getRequestErrorMessage(language, pendingError, t("common.unknownError")) };
+    }
+
+    if (pendingBetween?.id) {
+      return { ok: false, message: t("alert.dmRequestPendingBody") };
+    }
+
+    const { data: recipientProfile, error: recipientError } = await runRequestWithPolicy(() =>
+      supabase.from("profiles").select("dm_open").eq("id", otherId).maybeSingle()
+    );
+
+    if (recipientError) {
+      return { ok: false, message: getRequestErrorMessage(language, recipientError, t("common.unknownError")) };
+    }
+
+    const recipientOpen = recipientProfile?.dm_open ?? true;
+    if (recipientOpen) {
+      return { ok: true };
+    }
+
+    const { data: requestStatus, error: requestStatusError } = await runRequestWithPolicy(() =>
+      supabase
+        .from("dm_requests")
+        .select("id,status")
+        .eq("from_user_id", uid)
+        .eq("to_user_id", otherId)
+        .maybeSingle()
+    );
+
+    if (requestStatusError) {
+      return { ok: false, message: getRequestErrorMessage(language, requestStatusError, t("common.unknownError")) };
+    }
+
+    if (requestStatus?.status === "accepted") {
+      return { ok: true };
+    }
+
+    if (requestStatus?.id) {
+      const updateRequestRes = await runRequestWithPolicy(() =>
+        supabase
+          .from("dm_requests")
+          .update({ status: "pending", thread_id: threadId })
+          .eq("id", requestStatus.id)
+      );
+
+      if (updateRequestRes.error) {
+        return {
+          ok: false,
+          message: getRequestErrorMessage(language, updateRequestRes.error, t("common.unknownError")),
+        };
+      }
+    } else {
+      const insertRequestRes = await runRequestWithPolicy(() =>
+        supabase
+          .from("dm_requests")
+          .insert({
+            from_user_id: uid,
+            to_user_id: otherId,
+            thread_id: threadId,
+          })
+      );
+
+      if (insertRequestRes.error) {
+        return {
+          ok: false,
+          message: getRequestErrorMessage(language, insertRequestRes.error, t("common.unknownError")),
+        };
+      }
+    }
+
+    return { ok: false, message: t("alert.dmRequestSentBody") };
+  };
+
   const sendMessage = async () => {
     const content = input.trim();
     if (!content && !selectedImageUri) return;
@@ -500,6 +665,25 @@ export function DMThreadScreen({ route, navigation }: Props) {
       }
     }
 
+    const policyResult = await ensureDmRequestPolicyForSend(userId);
+    if (!policyResult.ok) {
+      setSending(false);
+      const pendingMessage = t("alert.dmRequestPendingBody");
+      const sentMessage = t("alert.dmRequestSentBody");
+      const title =
+        policyResult.message === pendingMessage
+          ? t("alert.dmRequestPending")
+          : policyResult.message === sentMessage
+            ? t("alert.dmRequestSent")
+            : t("alert.shareError");
+      setPolicyModal({
+        visible: true,
+        title,
+        message: policyResult.message ?? t("common.unknownError"),
+      });
+      return;
+    }
+
     const encrypted = roomCryptoKey ? await encryptWithRoomKey(roomCryptoKey, content) : null;
     const insertPayload = encrypted
       ? {
@@ -518,22 +702,32 @@ export function DMThreadScreen({ route, navigation }: Props) {
           image_url: imagePath,
         };
 
-    const { data: inserted, error } = await supabase
-      .from("dm_messages")
-      .insert(insertPayload)
-      .select("id,sender_id,created_at,read_at")
-      .single();
+    const { data: inserted, error } = await runRequestWithPolicy(() =>
+      supabase
+        .from("dm_messages")
+        .insert(insertPayload)
+        .select("id,sender_id,created_at,read_at")
+        .single()
+    );
 
     if (error || !inserted) {
       setSending(false);
-      Alert.alert(t("alert.shareError"), error?.message ?? t("common.unknownError"));
+      Alert.alert(t("alert.shareError"), getRequestErrorMessage(language, error, t("common.unknownError")));
       return;
     }
 
-    await supabase
-      .from("dm_threads")
-      .update({ last_message_at: new Date().toISOString() })
-      .eq("id", threadId);
+    const threadUpdateRes = await runRequestWithPolicy(() =>
+      supabase
+        .from("dm_threads")
+        .update({ last_message_at: new Date().toISOString() })
+        .eq("id", threadId)
+    );
+
+    if (threadUpdateRes.error) {
+      setSending(false);
+      Alert.alert(t("alert.shareError"), getRequestErrorMessage(language, threadUpdateRes.error, t("common.unknownError")));
+      return;
+    }
 
     setInput("");
     setSelectedImageUri(null);
@@ -591,19 +785,21 @@ export function DMThreadScreen({ route, navigation }: Props) {
     });
     const arrayBuffer = decode(base64);
 
-    const { data, error } = await supabase.storage.from("dm-attachments").upload(imagePath, arrayBuffer, {
-      cacheControl: "3600",
-      contentType: safeMime,
-      upsert: false,
-    });
+    const { data, error } = await runRequestWithPolicy(() =>
+      supabase.storage.from("dm-attachments").upload(imagePath, arrayBuffer, {
+        cacheControl: "3600",
+        contentType: safeMime,
+        upsert: false,
+      })
+    );
 
     if (error) {
       throw new Error(error.message);
     }
 
-    const { data: signedData, error: signedError } = await supabase.storage
-      .from("dm-attachments")
-      .createSignedUrl(data.path, 60 * 60 * 24 * 7);
+    const { data: signedData, error: signedError } = await runRequestWithPolicy(() =>
+      supabase.storage.from("dm-attachments").createSignedUrl(data.path, 60 * 60 * 24 * 7)
+    );
     if (signedError || !signedData?.signedUrl) {
       throw new Error(signedError?.message ?? "Failed to create signed URL.");
     }
@@ -674,13 +870,15 @@ export function DMThreadScreen({ route, navigation }: Props) {
 
   const openSharedItemInApp = async (shared: NonNullable<ReturnType<typeof parseSharedItemMessage>>) => {
     if (shared.itemId) {
-      const { data, error } = await supabase
-        .from("items")
-        .select(
-          "id,title,description,image_url,image_urls,brand,category,visibility,owner_id,created_at,profiles(handle,display_name,avatar_url)"
-        )
-        .eq("id", shared.itemId)
-        .maybeSingle();
+      const { data, error } = await runRequestWithPolicy(() =>
+        supabase
+          .from("items")
+          .select(
+            "id,title,description,image_url,image_urls,brand,category,visibility,owner_id,created_at,profiles(handle,display_name,avatar_url)"
+          )
+          .eq("id", shared.itemId)
+          .maybeSingle()
+      );
 
       if (!error && data) {
         const row = data as {
@@ -734,15 +932,17 @@ export function DMThreadScreen({ route, navigation }: Props) {
   const openOtherProfile = async () => {
     if (openingProfile) return;
     setOpeningProfile(true);
-    const { data, error } = await supabase
-      .from("profiles")
-      .select("id,handle")
-      .eq("handle", otherHandle)
-      .maybeSingle();
+    const { data, error } = await runRequestWithPolicy(() =>
+      supabase
+        .from("profiles")
+        .select("id,handle")
+        .eq("handle", otherHandle)
+        .maybeSingle()
+    );
 
     setOpeningProfile(false);
     if (error || !data?.id) {
-      Alert.alert(t("alert.loadError"), error?.message ?? t("common.unknownError"));
+      Alert.alert(t("alert.loadError"), getRequestErrorMessage(language, error, t("common.unknownError")));
       return;
     }
     navigation.navigate("UserProfile", { ownerId: data.id, handle: data.handle });
@@ -805,6 +1005,7 @@ export function DMThreadScreen({ route, navigation }: Props) {
               {item.image_url ? (
                 <ExpoImage
                   contentFit="cover"
+                  cachePolicy="disk"
                   source={{ uri: item.image_url }}
                   style={styles.messageImage}
                   onError={() => {
@@ -888,6 +1089,26 @@ export function DMThreadScreen({ route, navigation }: Props) {
           <Text style={styles.sendLabel}>{sending ? "..." : t("feed.send")}</Text>
         </Pressable>
       </View>
+
+      <Modal
+        visible={policyModal.visible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setPolicyModal({ visible: false, title: "", message: "" })}
+      >
+        <View style={styles.modalBackdrop}>
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>{policyModal.title}</Text>
+            <Text style={styles.modalBody}>{policyModal.message}</Text>
+            <Pressable
+              onPress={() => setPolicyModal({ visible: false, title: "", message: "" })}
+              style={styles.modalButton}
+            >
+              <Text style={styles.modalButtonLabel}>{t("common.ok")}</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -1129,5 +1350,43 @@ const styles = StyleSheet.create({
   sharedChipMine: {
     backgroundColor: webUi.color.overlaySoft,
     color: webUi.color.primaryText,
+  },
+  modalBackdrop: {
+    alignItems: "center",
+    backgroundColor: "rgba(0,0,0,0.45)",
+    flex: 1,
+    justifyContent: "center",
+    padding: 24,
+  },
+  modalCard: {
+    backgroundColor: webUi.color.surface,
+    borderColor: webUi.color.border,
+    borderRadius: webUi.radius.xxl,
+    borderWidth: 1,
+    gap: 10,
+    maxWidth: 420,
+    padding: 16,
+    width: "100%",
+  },
+  modalTitle: {
+    color: webUi.color.text,
+    fontSize: 16,
+    fontWeight: "700",
+  },
+  modalBody: {
+    color: webUi.color.textSecondary,
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  modalButton: {
+    alignItems: "center",
+    backgroundColor: webUi.color.primary,
+    borderRadius: webUi.radius.xl,
+    marginTop: 4,
+    paddingVertical: webUi.layout.controlVerticalPadding,
+  },
+  modalButtonLabel: {
+    color: webUi.color.primaryText,
+    fontWeight: "700",
   },
 });
