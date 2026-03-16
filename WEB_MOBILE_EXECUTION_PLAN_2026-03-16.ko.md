@@ -30,6 +30,7 @@
 	- eoynx-app: qa:social-regression
 	- eoynx-mobile: qa:social-regression
 	- 루트 통합 실행: run-social-regression-all.ps1
+- GitHub Actions CI 연결 완료 (Social Regression Check 워크플로우 성공 실행)
 
 진행 중
 - 모바일 성능/배터리 최적화 2차(리스트 가상화 미세 튜닝, 저사양 기기 체감 검증)
@@ -207,13 +208,13 @@
 2. [완료] Collection 페이지 TBT 추가 하향(목표 250ms 이하)
 3. [완료] Lighthouse 재현성 확보를 위한 단일 실행 스크립트 추가
 4. [완료] 웹 1단계 종료 기준 재평가 (프로덕션 기준 목표 충족)
-5. [진행 예정] 소셜 회귀 자동 점검을 CI에 연결 (실패 시 배포 차단)
+5. [완료] 소셜 회귀 자동 점검 CI 연결 (workflow_dispatch/PR 실행 + 시크릿 등록 + 실행 성공)
 6. [진행 예정] DM preview 과거 데이터 정책(백필 vs 점진 갱신) 확정
 
 ## 7) 통합 백로그 (실행용)
 
 P0
-- [ ] requestPolicy 잔여 경로 최종 감사 및 CI 회귀 게이트 연결
+- [ ] requestPolicy 잔여 경로 최종 감사
 - [ ] 모바일 DM 화면 저사양 기기에서 배터리/발열/스크롤 체감 재검증
 - [ ] DM preview 과거 데이터 표시 정책 확정 (백필 vs 점진 갱신)
 
