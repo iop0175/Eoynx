@@ -60,6 +60,7 @@
 - 소셜 회귀 자동 점검 스크립트 도입 (웹/모바일/루트 통합)
 - DM preview 과거 데이터 정책 확정 (점진 갱신 채택 + fallback 기준 문서화)
 - requestPolicy 잔여 경로 감사 1차 완료 (DMThread 내 누락 에러 처리 보강)
+- requestPolicy 잔여 경로 감사 2차 완료 (Add/Profile likes/profile 조회 누락 에러 처리 보강)
 
 최근 측정 요약
 - Search (실데이터, q=PERF): perf 75, LCP 8.2s, TBT 80ms, unused JS 약 292KiB

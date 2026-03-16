@@ -12,6 +12,7 @@ import {
   View,
 } from "react-native";
 import { useNavigation } from "@react-navigation/native";
+import { getRequestErrorMessage, runRequestWithPolicy, type ApiErrorLike } from "../../lib/requestPolicy";
 import { supabase } from "../../lib/supabase";
 import { webUi } from "../../theme/webUi";
 import type { Item } from "../../types/item";
@@ -55,6 +56,7 @@ const CATEGORIES = [
 ];
 
 export function UserProfileScreen({ route }: Props) {
+  const language = "ko" as const;
   const navigation = useNavigation<any>();
   const { ownerId, handle } = route.params;
   const [loading, setLoading] = useState(true);
@@ -71,28 +73,43 @@ export function UserProfileScreen({ route }: Props) {
   const loadData = useCallback(async () => {
     setLoading(true);
 
-    const { data: authData } = await supabase.auth.getUser();
+    const { data: authData, error: authError } = await runRequestWithPolicy(() => supabase.auth.getUser());
+    if (authError) {
+      setLoading(false);
+      Alert.alert("Load Error", getRequestErrorMessage(language, authError));
+      return;
+    }
     const uid = authData.user?.id ?? null;
     setViewerId(uid);
 
     const [profileRes, itemsRes, followersRes, followingRes, followStateRes] = await Promise.all([
-      supabase
-        .from("profiles")
-        .select("id,handle,display_name,bio,avatar_url,dm_open")
-        .eq("id", ownerId)
-        .maybeSingle<PublicProfile>(),
-      supabase
-        .from("items")
-        .select("id,title,description,image_url,image_urls,brand,category,visibility,owner_id,created_at")
-        .eq("owner_id", ownerId)
-        .eq("visibility", "public")
-        .order("created_at", { ascending: false })
-        .limit(60)
-        .returns<ItemRow[]>(),
-      supabase.from("followers").select("id", { count: "exact", head: true }).eq("following_id", ownerId),
-      supabase.from("followers").select("id", { count: "exact", head: true }).eq("follower_id", ownerId),
+      runRequestWithPolicy(() =>
+        supabase
+          .from("profiles")
+          .select("id,handle,display_name,bio,avatar_url,dm_open")
+          .eq("id", ownerId)
+          .maybeSingle<PublicProfile>()
+      ),
+      runRequestWithPolicy(() =>
+        supabase
+          .from("items")
+          .select("id,title,description,image_url,image_urls,brand,category,visibility,owner_id,created_at")
+          .eq("owner_id", ownerId)
+          .eq("visibility", "public")
+          .order("created_at", { ascending: false })
+          .limit(60)
+          .returns<ItemRow[]>()
+      ),
+      runRequestWithPolicy(() =>
+        supabase.from("followers").select("id", { count: "exact", head: true }).eq("following_id", ownerId)
+      ),
+      runRequestWithPolicy(() =>
+        supabase.from("followers").select("id", { count: "exact", head: true }).eq("follower_id", ownerId)
+      ),
       uid
-        ? supabase.from("followers").select("id").eq("follower_id", uid).eq("following_id", ownerId).maybeSingle()
+        ? runRequestWithPolicy(() =>
+            supabase.from("followers").select("id").eq("follower_id", uid).eq("following_id", ownerId).maybeSingle()
+          )
         : Promise.resolve({ data: null, error: null }),
     ]);
 
@@ -100,12 +117,11 @@ export function UserProfileScreen({ route }: Props) {
       setLoading(false);
       Alert.alert(
         "Load Error",
-        profileRes.error?.message ??
-          itemsRes.error?.message ??
-          followersRes.error?.message ??
-          followingRes.error?.message ??
-          followStateRes.error?.message ??
-          "Unknown error",
+        getRequestErrorMessage(
+          language,
+          profileRes.error ?? itemsRes.error ?? followersRes.error ?? followingRes.error ?? followStateRes.error,
+          "Unknown error"
+        ),
       );
       return;
     }
@@ -114,12 +130,19 @@ export function UserProfileScreen({ route }: Props) {
     const itemIds = rows.map((row) => row.id);
     let likeCountByItem = new Map<string, number>();
     if (itemIds.length > 0) {
-      const likesRes = await supabase.from("likes").select("item_id").in("item_id", itemIds);
-      if (!likesRes.error) {
-        likeCountByItem = new Map();
-        for (const like of likesRes.data ?? []) {
-          likeCountByItem.set(like.item_id, (likeCountByItem.get(like.item_id) ?? 0) + 1);
-        }
+      const likesRes = await runRequestWithPolicy(() =>
+        supabase.from("likes").select("item_id").in("item_id", itemIds)
+      );
+
+      if (likesRes.error) {
+        setLoading(false);
+        Alert.alert("Load Error", getRequestErrorMessage(language, likesRes.error, "Unknown error"));
+        return;
+      }
+
+      likeCountByItem = new Map();
+      for (const like of likesRes.data ?? []) {
+        likeCountByItem.set(like.item_id, (likeCountByItem.get(like.item_id) ?? 0) + 1);
       }
     }
 
@@ -149,7 +172,7 @@ export function UserProfileScreen({ route }: Props) {
       })),
     );
     setLoading(false);
-  }, [handle, ownerId]);
+  }, [handle, language, ownerId]);
 
   useEffect(() => {
     void loadData();
@@ -168,12 +191,24 @@ export function UserProfileScreen({ route }: Props) {
       return;
     }
     setFollowLoading(true);
-    const { error } = isFollowing
-      ? await supabase.from("followers").delete().eq("follower_id", viewerId).eq("following_id", ownerId)
-      : await supabase.from("followers").upsert({ follower_id: viewerId, following_id: ownerId }, { onConflict: "follower_id,following_id" });
+    let error: ApiErrorLike = null;
+    try {
+      const result = isFollowing
+        ? await runRequestWithPolicy(() =>
+            supabase.from("followers").delete().eq("follower_id", viewerId).eq("following_id", ownerId)
+          )
+        : await runRequestWithPolicy(() =>
+            supabase
+              .from("followers")
+              .upsert({ follower_id: viewerId, following_id: ownerId }, { onConflict: "follower_id,following_id" })
+          );
+      error = result.error;
+    } catch (followError) {
+      error = followError as ApiErrorLike;
+    }
     setFollowLoading(false);
     if (error) {
-      Alert.alert("Follow Error", error.message);
+      Alert.alert("Follow Error", getRequestErrorMessage(language, error));
       return;
     }
     setIsFollowing((prev) => !prev);
@@ -189,27 +224,37 @@ export function UserProfileScreen({ route }: Props) {
 
     setDmLoading(true);
     const [one, two] = viewerId < ownerId ? [viewerId, ownerId] : [ownerId, viewerId];
-    const existing = await supabase
-      .from("dm_threads")
-      .select("id")
-      .eq("participant1_id", one)
-      .eq("participant2_id", two)
-      .maybeSingle();
+    const existing = await runRequestWithPolicy(() =>
+      supabase
+        .from("dm_threads")
+        .select("id")
+        .eq("participant1_id", one)
+        .eq("participant2_id", two)
+        .maybeSingle()
+    );
+
+    if (existing.error) {
+      setDmLoading(false);
+      Alert.alert("DM Error", getRequestErrorMessage(language, existing.error, "Could not open DM thread."));
+      return;
+    }
 
     let threadId = existing.data?.id ?? null;
     if (!threadId) {
-      const created = await supabase
-        .from("dm_threads")
-        .insert({
-          participant1_id: one,
-          participant2_id: two,
-          last_message_at: new Date().toISOString(),
-        })
-        .select("id")
-        .single();
+      const created = await runRequestWithPolicy(() =>
+        supabase
+          .from("dm_threads")
+          .insert({
+            participant1_id: one,
+            participant2_id: two,
+            last_message_at: new Date().toISOString(),
+          })
+          .select("id")
+          .single()
+      );
       if (created.error || !created.data) {
         setDmLoading(false);
-        Alert.alert("DM Error", created.error?.message ?? "Could not start DM thread.");
+        Alert.alert("DM Error", getRequestErrorMessage(language, created.error, "Could not start DM thread."));
         return;
       }
       threadId = created.data.id;

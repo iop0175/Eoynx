@@ -13,6 +13,7 @@ import {
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import type { Session } from "@supabase/supabase-js";
 import { useI18n } from "../i18n";
+import { getRequestErrorMessage, runRequestWithPolicy } from "../lib/requestPolicy";
 import { supabase } from "../lib/supabase";
 import type { ProfileStackParamList } from "../navigation/types";
 import { webUi } from "../theme/webUi";
@@ -45,6 +46,7 @@ const SORT_OPTIONS: Array<{ id: SortKey; label: string }> = [
 
 export function ProfileScreen({ session, navigation }: ProfileScreenProps) {
   const { t } = useI18n();
+  const language = "ko" as const;
   const user = session.user;
   const [loading, setLoading] = useState(true);
   const [profile, setProfile] = useState<Profile | null>(null);
@@ -57,31 +59,41 @@ export function ProfileScreen({ session, navigation }: ProfileScreenProps) {
     setLoading(true);
 
     const [profileRes, itemsRes, followersRes, followingRes] = await Promise.all([
-      supabase.from("profiles").select("id,handle,display_name,bio,avatar_url,dm_open").eq("id", user.id).maybeSingle(),
-      supabase
-        .from("items")
-        .select("id,title,description,image_url,image_urls,brand,category,visibility,owner_id,created_at")
-        .eq("owner_id", user.id)
-        .eq("visibility", "public")
-        .order("created_at", { ascending: false })
-        .limit(60)
-        .returns<ItemRow[]>(),
-      supabase.from("followers").select("id", { count: "exact", head: true }).eq("following_id", user.id),
-      supabase.from("followers").select("id", { count: "exact", head: true }).eq("follower_id", user.id),
+      runRequestWithPolicy(() =>
+        supabase.from("profiles").select("id,handle,display_name,bio,avatar_url,dm_open").eq("id", user.id).maybeSingle()
+      ),
+      runRequestWithPolicy(() =>
+        supabase
+          .from("items")
+          .select("id,title,description,image_url,image_urls,brand,category,visibility,owner_id,created_at")
+          .eq("owner_id", user.id)
+          .eq("visibility", "public")
+          .order("created_at", { ascending: false })
+          .limit(60)
+          .returns<ItemRow[]>()
+      ),
+      runRequestWithPolicy(() =>
+        supabase.from("followers").select("id", { count: "exact", head: true }).eq("following_id", user.id)
+      ),
+      runRequestWithPolicy(() =>
+        supabase.from("followers").select("id", { count: "exact", head: true }).eq("follower_id", user.id)
+      ),
     ]);
 
     setLoading(false);
 
     // Backward compatibility for projects without dm_open.
     if (profileRes.error && profileRes.error.message.includes("dm_open")) {
-      const fallback = await supabase
-        .from("profiles")
-        .select("id,handle,display_name,bio,avatar_url")
-        .eq("id", user.id)
-        .maybeSingle();
+      const fallback = await runRequestWithPolicy(() =>
+        supabase
+          .from("profiles")
+          .select("id,handle,display_name,bio,avatar_url")
+          .eq("id", user.id)
+          .maybeSingle()
+      );
 
       if (fallback.error) {
-        Alert.alert("Profile Error", fallback.error.message);
+        Alert.alert("Profile Error", getRequestErrorMessage(language, fallback.error));
         return;
       }
 
@@ -94,14 +106,14 @@ export function ProfileScreen({ session, navigation }: ProfileScreenProps) {
           : null
       );
     } else if (profileRes.error) {
-      Alert.alert("Profile Error", profileRes.error.message);
+      Alert.alert("Profile Error", getRequestErrorMessage(language, profileRes.error));
       return;
     } else {
       setProfile(profileRes.data);
     }
 
     if (itemsRes.error) {
-      Alert.alert("Load Error", itemsRes.error.message);
+      Alert.alert("Load Error", getRequestErrorMessage(language, itemsRes.error));
       return;
     }
 
@@ -110,12 +122,18 @@ export function ProfileScreen({ session, navigation }: ProfileScreenProps) {
     let likeCountByItem = new Map<string, number>();
 
     if (itemIds.length > 0) {
-      const likesRes = await supabase.from("likes").select("item_id").in("item_id", itemIds);
-      if (!likesRes.error) {
-        likeCountByItem = new Map();
-        for (const like of likesRes.data ?? []) {
-          likeCountByItem.set(like.item_id, (likeCountByItem.get(like.item_id) ?? 0) + 1);
-        }
+      const likesRes = await runRequestWithPolicy(() =>
+        supabase.from("likes").select("item_id").in("item_id", itemIds)
+      );
+
+      if (likesRes.error) {
+        Alert.alert("Load Error", getRequestErrorMessage(language, likesRes.error));
+        return;
+      }
+
+      likeCountByItem = new Map();
+      for (const like of likesRes.data ?? []) {
+        likeCountByItem.set(like.item_id, (likeCountByItem.get(like.item_id) ?? 0) + 1);
       }
     }
 
@@ -146,7 +164,7 @@ export function ProfileScreen({ session, navigation }: ProfileScreenProps) {
 
     if (!followersRes.error) setFollowersCount(followersRes.count ?? 0);
     if (!followingRes.error) setFollowingCount(followingRes.count ?? 0);
-  }, [user.id, user.email, profile?.avatar_url, profile?.display_name, profile?.handle]);
+  }, [language, user.id, user.email, profile?.avatar_url, profile?.display_name, profile?.handle]);
 
   useEffect(() => {
     void loadProfile();

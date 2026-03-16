@@ -16,6 +16,7 @@ import * as FileSystemLegacy from "expo-file-system/legacy";
 import { Image as ExpoImage } from "expo-image";
 import * as ImageManipulator from "expo-image-manipulator";
 import { decode } from "base64-arraybuffer";
+import { getRequestErrorMessage, runRequestWithPolicy, type ApiErrorLike } from "../lib/requestPolicy";
 import { supabase } from "../lib/supabase";
 import type { AddStackParamList } from "../navigation/types";
 import { webUi } from "../theme/webUi";
@@ -289,11 +290,15 @@ export function AddItemScreen({ navigation, route }: Props) {
     });
     const arrayBuffer = decode(base64);
 
-    const { data, error } = await supabase.storage.from("items").upload(filePath, arrayBuffer, {
-      cacheControl: "3600",
-      contentType: safeMime,
-      upsert: false,
-    });
+    const { data, error } = await runRequestWithPolicy(
+      () =>
+        supabase.storage.from("items").upload(filePath, arrayBuffer, {
+          cacheControl: "3600",
+          contentType: safeMime,
+          upsert: false,
+        }),
+      { timeoutMs: 12000, retries: 1 }
+    );
     if (error) throw new Error(error.message);
     const { data: publicData } = supabase.storage.from("items").getPublicUrl(data.path);
     return publicData.publicUrl;
@@ -322,10 +327,13 @@ export function AddItemScreen({ navigation, route }: Props) {
 
     setLoading(true);
     try {
-      const { data: authData, error: authError } = await supabase.auth.getUser();
+      const { data: authData, error: authError } = await runRequestWithPolicy(
+        () => supabase.auth.getUser(),
+        { timeoutMs: 8000, retries: 1 }
+      );
       if (authError || !authData.user) {
         setLoading(false);
-        Alert.alert("Auth Error", authError?.message ?? "No authenticated user.");
+        Alert.alert("Auth Error", getRequestErrorMessage("en", authError, "No authenticated user."));
         return;
       }
       const ownerId = authData.user.id;
@@ -390,18 +398,26 @@ export function AddItemScreen({ navigation, route }: Props) {
       for (const payload of upsertAttempts) {
         const fullPayload = { owner_id: ownerId, ...payload };
         const res = isEditMode
-          ? await supabase
-              .from("items")
-              .update(fullPayload)
-              .eq("id", editItem!.id)
-              .eq("owner_id", ownerId)
-              .select("id,title,description,image_url,image_urls,brand,category,visibility,owner_id,created_at")
-              .single()
-          : await supabase
-              .from("items")
-              .insert(fullPayload)
-              .select("id,title,description,image_url,image_urls,brand,category,visibility,owner_id,created_at")
-              .single();
+          ? await runRequestWithPolicy(
+              () =>
+                supabase
+                  .from("items")
+                  .update(fullPayload)
+                  .eq("id", editItem!.id)
+                  .eq("owner_id", ownerId)
+                  .select("id,title,description,image_url,image_urls,brand,category,visibility,owner_id,created_at")
+                  .single(),
+              { timeoutMs: 10000, retries: 1 }
+            )
+          : await runRequestWithPolicy(
+              () =>
+                supabase
+                  .from("items")
+                  .insert(fullPayload)
+                  .select("id,title,description,image_url,image_urls,brand,category,visibility,owner_id,created_at")
+                  .single(),
+              { timeoutMs: 10000, retries: 1 }
+            );
         if (!res.error) {
           savedItemRow = res.data;
           upsertSucceeded = true;
@@ -414,11 +430,21 @@ export function AddItemScreen({ navigation, route }: Props) {
         throw new Error(upsertErrorMessage ?? (isEditMode ? "Failed to update item." : "Failed to create item."));
       }
 
-      const { data: ownerProfile } = await supabase
-        .from("profiles")
-        .select("handle,display_name,avatar_url")
-        .eq("id", ownerId)
-        .maybeSingle();
+      const ownerProfileRes = await runRequestWithPolicy(
+        () =>
+          supabase
+            .from("profiles")
+            .select("handle,display_name,avatar_url")
+            .eq("id", ownerId)
+            .maybeSingle(),
+        { timeoutMs: 8000, retries: 1 }
+      );
+
+      if (ownerProfileRes.error) {
+        throw new Error(getRequestErrorMessage("en", ownerProfileRes.error, "Failed to load owner profile."));
+      }
+
+      const ownerProfile = ownerProfileRes.data;
 
       if (!savedItemRow) {
         throw new Error(isEditMode ? "Updated item not found." : "Created item not found.");
@@ -450,7 +476,8 @@ export function AddItemScreen({ navigation, route }: Props) {
       setVisibility("public");
       navigation.navigate("FeedItemDetail", { item: detailItem });
     } catch (error) {
-      const msg = error instanceof Error ? error.message : isEditMode ? "Failed to update item." : "Failed to create item.";
+      const fallback = isEditMode ? "Failed to update item." : "Failed to create item.";
+      const msg = getRequestErrorMessage("en", error as ApiErrorLike, fallback);
       Alert.alert(isEditMode ? "Update Error" : "Create Error", msg);
     } finally {
       setLoading(false);
@@ -467,17 +494,23 @@ export function AddItemScreen({ navigation, route }: Props) {
         onPress: async () => {
           setDeleting(true);
           try {
-            const { data: authData, error: authError } = await supabase.auth.getUser();
+            const { data: authData, error: authError } = await runRequestWithPolicy(
+              () => supabase.auth.getUser(),
+              { timeoutMs: 8000, retries: 1 }
+            );
             if (authError || !authData.user) {
-              Alert.alert("Auth Error", authError?.message ?? "No authenticated user.");
+              Alert.alert("Auth Error", getRequestErrorMessage("en", authError, "No authenticated user."));
               return;
             }
             const ownerId = authData.user.id;
-            const { error } = await supabase.from("items").delete().eq("id", editItem.id).eq("owner_id", ownerId);
+            const { error } = await runRequestWithPolicy(
+              () => supabase.from("items").delete().eq("id", editItem.id).eq("owner_id", ownerId),
+              { timeoutMs: 10000, retries: 1 }
+            );
             if (error) throw new Error(error.message);
             navigation.getParent<any>()?.navigate("Feed", { screen: "FeedList" });
           } catch (error) {
-            const message = error instanceof Error ? error.message : "Failed to delete item.";
+            const message = getRequestErrorMessage("en", error as ApiErrorLike, "Failed to delete item.");
             Alert.alert("Delete Error", message);
           } finally {
             setDeleting(false);
