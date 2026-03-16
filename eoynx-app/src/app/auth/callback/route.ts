@@ -4,7 +4,8 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 export async function GET(request: Request) {
   const { searchParams, origin } = new URL(request.url);
   const code = searchParams.get("code");
-  const next = searchParams.get("next") ?? "/feed";
+  const requestedNext = searchParams.get("next") ?? "/feed";
+  const next = requestedNext.startsWith("/") ? requestedNext : "/feed";
   const error = searchParams.get("error");
   const errorDescription = searchParams.get("error_description");
 
@@ -20,13 +21,25 @@ export async function GET(request: Request) {
     const { error: exchangeError } = await supabase.auth.exchangeCodeForSession(code);
     
     if (!exchangeError) {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      const hasConsent = Boolean(user?.user_metadata?.privacy_consent);
+
+      if (!hasConsent) {
+        return NextResponse.redirect(
+          `${origin}/auth/consent?next=${encodeURIComponent(next)}`
+        );
+      }
+
       return NextResponse.redirect(`${origin}${next}`);
     }
     
     return NextResponse.redirect(`${origin}/auth?error=${encodeURIComponent(exchangeError.message)}`);
   }
 
-  // code가 없으면 클라이언트 측 핸들러 페이지로 이동
-  // (이 페이지가 URL hash의 토큰을 처리함)
-  return NextResponse.redirect(`${origin}/auth/callback/handle`);
+  // code가 없으면 인증 흐름 오류로 처리
+  return NextResponse.redirect(
+    `${origin}/auth?error=${encodeURIComponent("Invalid authentication callback")}`
+  );
 }

@@ -43,6 +43,12 @@ type ProfileClientProps = {
     following: number;
     rank?: number;
   };
+  demographicRanking?: {
+    ageGroupPercentile: number | null;
+    countryPercentile: number | null;
+    ageGroupLabel: string | null;
+    countryCode: string | null;
+  };
   categoryPercentiles?: Record<string, number>;
   items: ProfileItem[];
   isOwner: boolean;
@@ -61,6 +67,7 @@ type ProfileClientProps = {
 export function ProfileClient({ 
   profile, 
   stats, 
+  demographicRanking,
   categoryPercentiles = {},
   items: initialItems, 
   isOwner,
@@ -213,6 +220,42 @@ export function ProfileClient({
     }
   };
 
+  const handleDownloadRankingCard = async () => {
+    try {
+      const response = await fetch(`/api/share/ranking/${profile.handle}`);
+      if (!response.ok) throw new Error("Failed to generate ranking card");
+
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${profile.handle}-ranking-card.png`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error("Failed to download ranking card:", error);
+    }
+  };
+
+  const handleShareRankingCard = async () => {
+    const rankingUrl = `${window.location.origin}/api/share/ranking/${profile.handle}`;
+    if (navigator.share) {
+      try {
+        await navigator.share({
+          title: `${profile.display_name ?? `@${profile.handle}`} ranking`,
+          text: `My EOYNX asset percentile ranking`,
+          url: rankingUrl,
+        });
+      } catch {
+        navigator.clipboard.writeText(rankingUrl);
+      }
+      return;
+    }
+    navigator.clipboard.writeText(rankingUrl);
+  };
+
   const handleBlockToggle = async () => {
     if (!isLoggedIn) {
       window.location.href = "/auth";
@@ -306,12 +349,20 @@ export function ProfileClient({
             {/* Action buttons */}
             <div className="mt-3 flex gap-2">
               {isOwner ? (
-                <Link
-                  href="/settings/profile"
-                  className="rounded-full bg-gradient-to-r from-amber-400 to-amber-500 px-4 py-2 text-xs font-medium text-white shadow-sm hover:from-amber-500 hover:to-amber-600"
-                >
-                  Edit Profile
-                </Link>
+                <>
+                  <Link
+                    href="/settings/profile"
+                    className="rounded-full bg-gradient-to-r from-amber-400 to-amber-500 px-4 py-2 text-xs font-medium text-white shadow-sm hover:from-amber-500 hover:to-amber-600"
+                  >
+                    Edit Profile
+                  </Link>
+                  <Link
+                    href="/settings"
+                    className="rounded-full border border-neutral-300 bg-white px-4 py-2 text-xs font-medium text-neutral-700 shadow-sm transition-all hover:bg-neutral-50 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-300 dark:hover:bg-neutral-800"
+                  >
+                    Settings
+                  </Link>
+                </>
               ) : (
                 <>
                   <button
@@ -352,6 +403,20 @@ export function ProfileClient({
               >
                 <Download className="h-3 w-3" />
                 Share Card
+              </button>
+              <button
+                onClick={handleDownloadRankingCard}
+                className="inline-flex items-center gap-1.5 rounded-full border border-neutral-200 bg-white px-3 py-1.5 text-xs font-medium text-neutral-600 hover:bg-neutral-50 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-400 dark:hover:bg-neutral-800"
+              >
+                <Download className="h-3 w-3" />
+                Ranking Card
+              </button>
+              <button
+                onClick={handleShareRankingCard}
+                className="inline-flex items-center gap-1.5 rounded-full border border-neutral-200 bg-white px-3 py-1.5 text-xs font-medium text-neutral-600 hover:bg-neutral-50 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-400 dark:hover:bg-neutral-800"
+              >
+                <Share2 className="h-3 w-3" />
+                Share Ranking
               </button>
               
               {/* More menu for report/block */}
@@ -407,6 +472,20 @@ export function ProfileClient({
           <div className="text-2xl font-bold">Top {rankPercent}%</div>
           <div className="mt-1 text-xs text-neutral-500 dark:text-neutral-400">
             {categoryLabel} vault • Global
+          </div>
+          <div className="mt-3 space-y-1 text-xs text-neutral-600 dark:text-neutral-300">
+            <div>
+              Similar age ({demographicRanking?.ageGroupLabel ?? "N/A"}):{" "}
+              <span className="font-semibold">
+                {demographicRanking?.ageGroupPercentile ? `Top ${demographicRanking.ageGroupPercentile}%` : "N/A"}
+              </span>
+            </div>
+            <div>
+              Country ({demographicRanking?.countryCode ?? "N/A"}):{" "}
+              <span className="font-semibold">
+                {demographicRanking?.countryPercentile ? `Top ${demographicRanking.countryPercentile}%` : "N/A"}
+              </span>
+            </div>
           </div>
         </div>
 

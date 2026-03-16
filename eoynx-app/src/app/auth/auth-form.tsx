@@ -1,79 +1,49 @@
 "use client";
 
 import * as React from "react";
+import Link from "next/link";
+import { useTranslations } from "next-intl";
 import { useSearchParams } from "next/navigation";
-import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { signInWithEmail, signUpWithEmail, signInWithGoogle } from "@/app/actions/auth";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { UI_INPUT_BASE } from "@/components/ui/ui-classes";
 
 export function AuthForm() {
+  const t = useTranslations("auth");
   const searchParams = useSearchParams();
   const [mode, setMode] = React.useState<"signin" | "signup">("signin");
   const [error, setError] = React.useState<string | null>(null);
   const [success, setSuccess] = React.useState<string | null>(null);
   const [loading, setLoading] = React.useState(false);
+  const [privacyConsentChecked, setPrivacyConsentChecked] = React.useState(false);
+  const countryOptions = React.useMemo(
+    () => [
+      { code: "US", label: "United States" },
+      { code: "KR", label: "Korea" },
+      { code: "JP", label: "Japan" },
+      { code: "CN", label: "China" },
+      { code: "GB", label: "United Kingdom" },
+      { code: "DE", label: "Germany" },
+      { code: "FR", label: "France" },
+      { code: "CA", label: "Canada" },
+      { code: "AU", label: "Australia" },
+      { code: "SG", label: "Singapore" },
+    ],
+    []
+  );
 
   // URL에서 에러 파라미터 확인
   React.useEffect(() => {
     const errorParam = searchParams.get("error");
+    const successParam = searchParams.get("success");
     if (errorParam) {
       setError(decodeURIComponent(errorParam));
     }
+    if (successParam) {
+      setSuccess(decodeURIComponent(successParam));
+    }
   }, [searchParams]);
-
-  // URL hash에서 토큰 처리 (Implicit flow)
-  React.useEffect(() => {
-    const handleHashTokens = async () => {
-      const hash = window.location.hash;
-      console.log("Auth hash check:", hash ? "has hash" : "no hash");
-      
-      if (hash && hash.includes("access_token")) {
-        console.log("Processing access_token from hash");
-        setLoading(true);
-        setError(null);
-        
-        // Hash를 파싱하여 토큰 추출
-        const params = new URLSearchParams(hash.substring(1));
-        const accessToken = params.get("access_token");
-        const refreshToken = params.get("refresh_token");
-        
-        console.log("Tokens found:", { hasAccess: !!accessToken, hasRefresh: !!refreshToken });
-        
-        if (!accessToken || !refreshToken) {
-          setError("Invalid authentication response");
-          setLoading(false);
-          return;
-        }
-
-        const supabase = createSupabaseBrowserClient();
-
-        // 세션을 명시적으로 설정
-        console.log("Setting session...");
-        const { data, error: sessionError } = await supabase.auth.setSession({
-          access_token: accessToken,
-          refresh_token: refreshToken,
-        });
-        
-        console.log("setSession result:", { hasData: !!data, error: sessionError?.message });
-        
-        if (sessionError) {
-          setError(sessionError.message);
-          setLoading(false);
-          return;
-        }
-
-        console.log("Redirecting to /feed...");
-        // 쿠키가 설정될 때까지 잠시 대기 후 리다이렉트
-        setTimeout(() => {
-          window.location.href = "/feed";
-        }, 500);
-      }
-    };
-
-    handleHashTokens();
-  }, []);
 
   async function handleEmailSubmit(formData: FormData) {
     setLoading(true);
@@ -161,6 +131,67 @@ export function AuthForm() {
           minLength={6}
           className={UI_INPUT_BASE}
         />
+        {mode === "signup" && (
+          <>
+            <div className="grid gap-1">
+              <label className="text-xs font-medium text-neutral-600 dark:text-neutral-300">
+                Birth date
+              </label>
+              <input
+                name="birthDate"
+                type="date"
+                required
+                max={new Date().toISOString().slice(0, 10)}
+                className={UI_INPUT_BASE}
+              />
+            </div>
+            <div className="grid gap-1">
+              <label className="text-xs font-medium text-neutral-600 dark:text-neutral-300">
+                Country
+              </label>
+              <select
+                name="countryCode"
+                required
+                defaultValue=""
+                className={UI_INPUT_BASE}
+              >
+                <option value="" disabled>
+                  Select country
+                </option>
+                {countryOptions.map((country) => (
+                  <option key={country.code} value={country.code}>
+                    {country.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </>
+        )}
+        {mode === "signup" && (
+          <label className="flex items-start gap-2 rounded-lg border border-neutral-200 px-3 py-2 text-sm text-neutral-700 dark:border-neutral-800 dark:text-neutral-300">
+            <input
+              name="privacyConsent"
+              type="checkbox"
+              value="yes"
+              checked={privacyConsentChecked}
+              onChange={(event) => setPrivacyConsentChecked(event.target.checked)}
+              required
+              className="mt-0.5 h-4 w-4"
+            />
+            <span>
+              {t("privacyConsentLabel")} {" "}
+              <Link
+                href="/privacy-consent"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="font-medium text-neutral-900 underline underline-offset-2 dark:text-white"
+              >
+                {t("privacyConsentView")}
+              </Link>
+              <span className="ml-1 text-xs text-neutral-500 dark:text-neutral-400">{t("privacyConsentRequiredBadge")}</span>
+            </span>
+          </label>
+        )}
         <Button
           type="submit"
           disabled={loading}

@@ -78,7 +78,7 @@ export function ShareModal({ isOpen, onClose, itemId, itemTitle, itemImageUrl }:
 
     setSending(true);
     try {
-      const message = `📦 ${itemTitle}\n${shareUrl}`;
+      const message = `피드를 공유했습니다\n${itemTitle}\n${shareUrl}`;
       
       for (const userId of selectedUsers) {
         const threadResult = await getOrCreateThread(userId);

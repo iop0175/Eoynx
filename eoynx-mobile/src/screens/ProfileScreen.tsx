@@ -12,6 +12,7 @@ import {
 } from "react-native";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import type { Session } from "@supabase/supabase-js";
+import { useI18n } from "../i18n";
 import { supabase } from "../lib/supabase";
 import type { ProfileStackParamList } from "../navigation/types";
 import { webUi } from "../theme/webUi";
@@ -43,6 +44,7 @@ const SORT_OPTIONS: Array<{ id: SortKey; label: string }> = [
 ];
 
 export function ProfileScreen({ session, navigation }: ProfileScreenProps) {
+  const { t } = useI18n();
   const user = session.user;
   const [loading, setLoading] = useState(true);
   const [profile, setProfile] = useState<Profile | null>(null);
@@ -219,6 +221,9 @@ export function ProfileScreen({ session, navigation }: ProfileScreenProps) {
             <Pressable onPress={() => navigation.navigate("ProfileEdit")} style={styles.primaryAction}>
               <Text style={styles.primaryActionLabel}>Edit Profile</Text>
             </Pressable>
+            <Pressable onPress={() => navigation.navigate("SettingsHome")} style={styles.secondaryAction}>
+              <Text style={styles.secondaryActionLabel}>{t("settings.profileSettings")}</Text>
+            </Pressable>
             <Pressable onPress={onShareProfile} style={styles.secondaryAction}>
               <Text style={styles.secondaryActionLabel}>Share</Text>
             </Pressable>
@@ -364,13 +369,13 @@ const styles = StyleSheet.create({
   },
   displayName: {
     color: webUi.color.text,
-    fontSize: 20,
+    fontSize: webUi.typography.pageTitle,
     fontWeight: "700",
     letterSpacing: -0.3,
   },
   handleText: {
     color: webUi.color.textMuted,
-    fontSize: 12,
+    fontSize: webUi.typography.pageSubtitle,
     marginTop: 2,
   },
   followRow: {

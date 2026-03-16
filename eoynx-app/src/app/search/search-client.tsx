@@ -1,21 +1,17 @@
 "use client";
 
 import * as React from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Loader2, SlidersHorizontal, X } from "lucide-react";
+import { Loader2, SlidersHorizontal } from "lucide-react";
 import { FeedCard, type FeedCardItem } from "@/components/ui/feed-card";
 import { UserHeader } from "@/components/ui/user-header";
 import { Button } from "@/components/ui/button";
 import { UI_INPUT_BASE } from "@/components/ui/ui-classes";
 import {
-  searchPeople,
   searchItems,
-  type SearchPeopleResult,
-  type SearchItemsResult,
   type SearchSortBy,
   type SearchCategory,
-  type SearchFilters,
 } from "@/app/actions/search";
 
 type ProfileRow = {
@@ -67,7 +63,6 @@ export function SearchClient({
   translations: t,
 }: SearchClientProps) {
   const router = useRouter();
-  const searchParams = useSearchParams();
   
   const [query, setQuery] = React.useState(initialQuery);
   const [people, setPeople] = React.useState<ProfileRow[]>(initialPeople);
@@ -205,7 +200,7 @@ export function SearchClient({
           placeholder={t.placeholder}
           className={UI_INPUT_BASE}
         />
-        <Button type="submit" variant="neutral" className="py-3">
+        <Button type="submit" variant="neutral" className="min-w-[72px] whitespace-nowrap px-4 py-3">
           {t.go}
         </Button>
         <Button

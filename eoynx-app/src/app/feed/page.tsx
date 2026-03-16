@@ -10,6 +10,10 @@ export const metadata = {
   robots: NOINDEX,
 };
 
+function FeedLoadingFallback() {
+  return <FeedSkeleton count={3} />;
+}
+
 async function FeedContent() {
   const supabase = await createSupabaseServerClient();
 
@@ -31,7 +35,7 @@ async function FeedContent() {
 
 export default function FeedPage() {
   return (
-    <Suspense fallback={<FeedSkeleton count={3} />}>
+    <Suspense fallback={<FeedLoadingFallback />}>
       <FeedContent />
     </Suspense>
   );

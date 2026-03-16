@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, Alert, FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from "react-native";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
+import { useI18n } from "../i18n";
 import { decryptWithRoomKey, importRoomKey } from "../lib/dmCrypto";
 import { supabase } from "../lib/supabase";
 import type { FeedStackParamList } from "../navigation/types";
@@ -55,6 +56,7 @@ type ItemRow = {
 };
 
 export function NotificationsScreen({ navigation }: Props) {
+  const { language } = useI18n();
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [notifications, setNotifications] = useState<EnrichedNotification[]>([]);
@@ -146,7 +148,7 @@ export function NotificationsScreen({ navigation }: Props) {
       if (!picked) continue;
 
       if (picked.image_url && !picked.encrypted_content) {
-        dmPreviewByThread.set(threadId, "Photo");
+        dmPreviewByThread.set(threadId, language === "ko" ? "사진" : "Photo");
         continue;
       }
 
@@ -164,7 +166,7 @@ export function NotificationsScreen({ navigation }: Props) {
       }
 
       if (!previewText || !previewText.trim()) {
-        previewText = picked.image_url ? "Photo" : "Message";
+        previewText = picked.image_url ? (language === "ko" ? "사진" : "Photo") : language === "ko" ? "메시지" : "Message";
       }
       dmPreviewByThread.set(threadId, previewText);
     }
@@ -211,7 +213,7 @@ export function NotificationsScreen({ navigation }: Props) {
     grouped.push(...dmByActor.values());
     grouped.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
     setNotifications(grouped);
-  }, []);
+  }, [language]);
 
   useEffect(() => {
     void loadNotifications();
@@ -383,7 +385,7 @@ export function NotificationsScreen({ navigation }: Props) {
       if (item) {
         navigation.navigate("FeedItemDetail", { item });
       } else {
-        Alert.alert("Unavailable", "This item is no longer available.");
+        Alert.alert(language === "ko" ? "접근 불가" : "Unavailable", language === "ko" ? "해당 아이템을 찾을 수 없습니다." : "This item is no longer available.");
       }
       return;
     }
@@ -406,23 +408,32 @@ export function NotificationsScreen({ navigation }: Props) {
   };
 
   const formatText = (n: EnrichedNotification) => {
-    const actor = n.actor?.display_name ?? n.actor?.handle ?? "Someone";
-    const item = n.item?.title ?? "your item";
-    if (n.type === "follow") return `${actor} followed you`;
-    if (n.type === "like") return `${actor} liked ${item}`;
-    if (n.type === "comment") return `${actor} commented on ${item}`;
+    const actor = n.actor?.display_name ?? n.actor?.handle ?? (language === "ko" ? "누군가" : "Someone");
+    const item = n.item?.title ?? (language === "ko" ? "회원님의 아이템" : "your item");
+    if (n.type === "follow") return language === "ko" ? `${actor}님이 회원님을 팔로우했습니다` : `${actor} followed you`;
+    if (n.type === "like") return language === "ko" ? `${actor}님이 ${item}을(를) 좋아합니다` : `${actor} liked ${item}`;
+    if (n.type === "comment") {
+      if (n.preview === "comment_like" || n.preview === "liked your comment") {
+        return language === "ko" ? `${actor}님이 회원님의 댓글을 좋아합니다` : `${actor} liked your comment`;
+      }
+      if (n.preview === "reply_like" || n.preview === "liked your reply") {
+        return language === "ko" ? `${actor}님이 회원님의 답글을 좋아합니다` : `${actor} liked your reply`;
+      }
+      return language === "ko" ? `${actor}님이 ${item}에 댓글을 남겼습니다` : `${actor} commented on ${item}`;
+    }
     if (n.type === "dm") {
       const extra = Math.max(0, (n.dmCount ?? 1) - 1);
+      if (language === "ko") return extra > 0 ? `${actor}님이 DM을 보냈습니다 +${extra}` : `${actor}님이 DM을 보냈습니다`;
       return extra > 0 ? `${actor} sent you a DM +${extra}` : `${actor} sent you a DM`;
     }
-    return `${actor} sent a DM request`;
+    return language === "ko" ? `${actor}님이 DM 요청을 보냈습니다` : `${actor} sent a DM request`;
   };
 
   const formatTime = (createdAt: string) => {
     const created = new Date(createdAt).getTime();
     const now = Date.now();
     const diffMin = Math.max(0, Math.floor((now - created) / 60000));
-    if (diffMin < 1) return "just now";
+    if (diffMin < 1) return language === "ko" ? "방금" : "just now";
     if (diffMin < 60) return `${diffMin}m ago`;
     const diffHour = Math.floor(diffMin / 60);
     if (diffHour < 24) return `${diffHour}h ago`;
@@ -439,28 +450,28 @@ export function NotificationsScreen({ navigation }: Props) {
   return (
     <View style={styles.container}>
       <View style={styles.headerRow}>
-        <Text style={styles.title}>Notifications</Text>
+        <Text style={styles.title}>{language === "ko" ? "알림" : "Notifications"}</Text>
         <View style={styles.headerActions}>
           {unreadCount > 0 ? (
             <Pressable onPress={() => void markAllRead()} style={styles.headerButton}>
-              <Text style={styles.headerButtonLabel}>Mark all read</Text>
+              <Text style={styles.headerButtonLabel}>{language === "ko" ? "전체 읽음" : "Mark all read"}</Text>
             </Pressable>
           ) : null}
           {notifications.length > 0 ? (
             <Pressable onPress={() => void clearAll()} style={styles.headerButton}>
-              <Text style={styles.headerButtonDanger}>Clear all</Text>
+              <Text style={styles.headerButtonDanger}>{language === "ko" ? "전체 삭제" : "Clear all"}</Text>
             </Pressable>
           ) : null}
         </View>
       </View>
-      <Text style={styles.subtitle}>{unreadCount} unread</Text>
+      <Text style={styles.subtitle}>{language === "ko" ? `읽지 않음 ${unreadCount}` : `${unreadCount} unread`}</Text>
 
       {loading ? <ActivityIndicator style={styles.loader} /> : null}
 
       <FlatList
         data={notifications}
         keyExtractor={(item) => item.id}
-        ListEmptyComponent={<Text style={styles.empty}>No notifications yet.</Text>}
+        ListEmptyComponent={<Text style={styles.empty}>{language === "ko" ? "아직 알림이 없습니다." : "No notifications yet."}</Text>}
         refreshControl={<RefreshControl onRefresh={onRefresh} refreshing={refreshing} />}
         renderItem={({ item }) => (
           <Pressable
@@ -471,15 +482,21 @@ export function NotificationsScreen({ navigation }: Props) {
               <Text style={styles.cardText}>{formatText(item)}</Text>
               <Text style={styles.timeText}>{formatTime(item.created_at)}</Text>
             </View>
-            {item.preview ? <Text style={styles.preview}>"{item.preview}"</Text> : null}
+            {item.preview &&
+            item.preview !== "comment_like" &&
+            item.preview !== "reply_like" &&
+            item.preview !== "liked your comment" &&
+            item.preview !== "liked your reply" ? (
+              <Text style={styles.preview}>"{item.preview}"</Text>
+            ) : null}
             <View style={styles.actionRow}>
               {!item.read_at ? (
                 <Pressable onPress={() => void markRead(item.id, item.groupedIds)}>
-                  <Text style={styles.link}>Read</Text>
+                  <Text style={styles.link}>{language === "ko" ? "읽음" : "Read"}</Text>
                 </Pressable>
               ) : null}
               <Pressable onPress={() => void deleteNotification(item.id, item.groupedIds)}>
-                <Text style={styles.linkDanger}>Delete</Text>
+                <Text style={styles.linkDanger}>{language === "ko" ? "삭제" : "Delete"}</Text>
               </Pressable>
             </View>
           </Pressable>
@@ -493,27 +510,27 @@ const styles = StyleSheet.create({
   container: {
     alignSelf: "center",
     flex: 1,
-    gap: 8,
+    gap: webUi.layout.pageGap,
     maxWidth: webUi.layout.pageMaxWidth,
     width: "100%",
   },
   headerRow: { alignItems: "center", flexDirection: "row", justifyContent: "space-between" },
   headerActions: { flexDirection: "row", gap: 6 },
-  title: { color: webUi.color.text, fontSize: 24, fontWeight: "700" },
-  subtitle: { color: webUi.color.textMuted, fontSize: 12 },
+  title: { color: webUi.color.text, fontSize: webUi.typography.pageTitle, fontWeight: "700" },
+  subtitle: { color: webUi.color.textMuted, fontSize: webUi.typography.pageSubtitle },
   headerButton: {
     borderColor: webUi.color.border,
     borderRadius: webUi.radius.xl,
     borderWidth: 1,
     paddingHorizontal: 10,
-    paddingVertical: 6,
+    paddingVertical: webUi.layout.controlVerticalPadding - 4,
   },
   headerButtonLabel: { color: webUi.color.textSecondary, fontSize: 12, fontWeight: "600" },
   headerButtonDanger: { color: webUi.color.danger, fontSize: 12, fontWeight: "700" },
   loader: { marginTop: 8 },
   card: {
     borderColor: webUi.color.border,
-    borderRadius: webUi.radius.xl,
+    borderRadius: webUi.radius.xxl,
     borderWidth: 1,
     gap: 6,
     marginBottom: 8,

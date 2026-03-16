@@ -1,10 +1,29 @@
+import type { Metadata } from "next";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getTranslations } from "next-intl/server";
 import { searchPeople, searchItems, type SearchSortBy, type SearchCategory } from "@/app/actions/search";
 import { SearchClient } from "./search-client";
 
-export const metadata = {
+const BASE_URL = (process.env.NEXT_PUBLIC_SITE_URL || "https://eoynx.com").trim();
+
+export const metadata: Metadata = {
   title: "Search",
+  description: "Search public profiles and item pages across EOYNX.",
+  alternates: {
+    canonical: "/search",
+  },
+  openGraph: {
+    title: "Search · EOYNX",
+    description: "Search public profiles and item pages across EOYNX.",
+    type: "website",
+    url: `${BASE_URL}/search`,
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "Search · EOYNX",
+    description: "Search public profiles and item pages across EOYNX.",
+    images: [`${BASE_URL}/opengraph-image`],
+  },
 };
 
 type Props = {

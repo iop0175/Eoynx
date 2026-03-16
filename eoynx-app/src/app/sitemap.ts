@@ -1,24 +1,31 @@
 import { MetadataRoute } from "next";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
-const BASE_URL = process.env.NEXT_PUBLIC_SITE_URL || "https://eoynx.com";
+const BASE_URL = (process.env.NEXT_PUBLIC_SITE_URL || "https://eoynx.com").trim();
+
+function toValidDate(value: string | null | undefined, fallback: Date): Date {
+  if (!value) return fallback;
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? fallback : parsed;
+}
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const supabase = await createSupabaseServerClient();
+  const now = new Date();
 
   // Static routes
   const staticRoutes: MetadataRoute.Sitemap = [
     {
       url: BASE_URL,
-      lastModified: new Date(),
+      lastModified: now,
       changeFrequency: "daily",
       priority: 1,
     },
     {
       url: `${BASE_URL}/search`,
-      lastModified: new Date(),
+      lastModified: now,
       changeFrequency: "daily",
-      priority: 0.8,
+      priority: 0.9,
     },
   ];
 
@@ -26,14 +33,15 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const { data: profiles } = await supabase
     .from("profiles")
     .select("handle, created_at")
+    .not("handle", "is", null)
     .order("created_at", { ascending: false })
     .limit(1000);
 
   const profileRoutes: MetadataRoute.Sitemap = (profiles ?? []).map((profile) => ({
     url: `${BASE_URL}/u/${profile.handle}`,
-    lastModified: new Date(profile.created_at),
+    lastModified: toValidDate(profile.created_at, now),
     changeFrequency: "weekly" as const,
-    priority: 0.7,
+    priority: 0.8,
   }));
 
   // Get all public items
@@ -46,9 +54,9 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
 
   const itemRoutes: MetadataRoute.Sitemap = (items ?? []).map((item) => ({
     url: `${BASE_URL}/i/${item.id}`,
-    lastModified: new Date(item.created_at),
+    lastModified: toValidDate(item.created_at, now),
     changeFrequency: "weekly" as const,
-    priority: 0.6,
+    priority: 0.7,
   }));
 
   // Get all public collections
@@ -61,9 +69,9 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
 
   const collectionRoutes: MetadataRoute.Sitemap = (collections ?? []).map((collection) => ({
     url: `${BASE_URL}/c/${collection.id}`,
-    lastModified: new Date(collection.created_at),
+    lastModified: toValidDate(collection.created_at, now),
     changeFrequency: "weekly" as const,
-    priority: 0.5,
+    priority: 0.6,
   }));
 
   return [...staticRoutes, ...profileRoutes, ...itemRoutes, ...collectionRoutes];

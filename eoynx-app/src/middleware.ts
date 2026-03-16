@@ -1,7 +1,22 @@
-import { type NextRequest } from 'next/server'
+import { NextResponse, type NextRequest } from 'next/server'
 import { updateSession } from '@/lib/supabase/middleware'
 
 export async function middleware(request: NextRequest) {
+  try {
+    const canonicalUrl = (process.env.NEXT_PUBLIC_SITE_URL ?? 'https://www.eoynx.com').trim()
+    const canonicalHost = new URL(canonicalUrl).host
+    const apexHost = canonicalHost.startsWith('www.') ? canonicalHost.slice(4) : null
+
+    if (apexHost && request.nextUrl.host === apexHost) {
+      const redirectUrl = request.nextUrl.clone()
+      redirectUrl.host = canonicalHost
+      redirectUrl.protocol = 'https:'
+      return NextResponse.redirect(redirectUrl, 301)
+    }
+  } catch {
+    // Ignore malformed env values and continue normal flow.
+  }
+
   return await updateSession(request)
 }
 

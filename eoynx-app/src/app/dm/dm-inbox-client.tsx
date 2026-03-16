@@ -15,15 +15,36 @@ type DMInboxClientProps = {
   currentUserId: string;
 };
 
+function getInboxPreview(content: string, imageUrl?: string | null) {
+  const normalized = content.trim();
+
+  const sharedMatch =
+    normalized.match(/^피드를 공유했습니다\n(.+)\nhttps?:\/\/[^\s]+\/i\/[a-f0-9-]+$/i) ??
+    normalized.match(/^📦\s+(.+)\nhttps?:\/\/[^\s]+\/i\/[a-f0-9-]+$/i);
+
+  if (sharedMatch) {
+    return `피드 공유 · ${sharedMatch[1].trim()}`;
+  }
+
+  if (!normalized && imageUrl) {
+    return "사진";
+  }
+
+  return normalized || "메시지를 확인해보세요";
+}
+
 export function DMInboxClient({ threads, requestCount, currentUserId }: DMInboxClientProps) {
   const router = useRouter();
   const t = useTranslations("dm");
   const locale = useLocale();
   const [threadList, setThreadList] = React.useState<DMThread[]>(threads);
+  const [showUnreadOnly, setShowUnreadOnly] = React.useState(false);
   const reloadTimerRef = React.useRef<NodeJS.Timeout | null>(null);
+  const threadIdsRef = React.useRef<Set<string>>(new Set(threads.map((thread) => thread.id)));
 
   React.useEffect(() => {
     setThreadList(threads);
+    threadIdsRef.current = new Set(threads.map((thread) => thread.id));
   }, [threads]);
 
   React.useEffect(() => {
@@ -86,7 +107,7 @@ export function DMInboxClient({ threads, requestCount, currentUserId }: DMInboxC
         (payload) => {
           const newMessage = payload.new as { thread_id: string; sender_id: string };
           // 내 스레드에 대한 메시지인지 확인
-          const isMyThread = threadList.some((t) => t.id === newMessage.thread_id);
+          const isMyThread = threadIdsRef.current.has(newMessage.thread_id);
           if (isMyThread) {
             scheduleReload();
           }
@@ -100,7 +121,7 @@ export function DMInboxClient({ threads, requestCount, currentUserId }: DMInboxC
       void supabase.removeChannel(threadP2Channel);
       void supabase.removeChannel(messageChannel);
     };
-  }, [currentUserId, router, threadList]);
+  }, [currentUserId, router]);
 
   const formatTime = (dateString: string) => {
     const date = new Date(dateString);
@@ -116,6 +137,26 @@ export function DMInboxClient({ threads, requestCount, currentUserId }: DMInboxC
     if (days < 7) return t("daysAgo", { count: days });
     return date.toLocaleDateString(locale, { month: "short", day: "numeric" });
   };
+
+  const sortedThreads = React.useMemo(() => {
+    const next = [...threadList].sort((a, b) => {
+      const aUnread = a.unread_count > 0 ? 1 : 0;
+      const bUnread = b.unread_count > 0 ? 1 : 0;
+      if (aUnread !== bUnread) {
+        return bUnread - aUnread;
+      }
+      return new Date(b.last_message_at).getTime() - new Date(a.last_message_at).getTime();
+    });
+    if (!showUnreadOnly) {
+      return next;
+    }
+    return next.filter((thread) => thread.unread_count > 0);
+  }, [showUnreadOnly, threadList]);
+
+  const unreadThreadCount = React.useMemo(
+    () => threadList.filter((thread) => thread.unread_count > 0).length,
+    [threadList]
+  );
 
   return (
     <div className="mx-auto w-full max-w-3xl px-4 py-10">
@@ -139,21 +180,38 @@ export function DMInboxClient({ threads, requestCount, currentUserId }: DMInboxC
         </Link>
       </div>
 
+      <div className="mb-3 flex items-center justify-between">
+        <p className="text-xs text-neutral-500 dark:text-neutral-400">
+          {unreadThreadCount > 0
+            ? `읽지 않은 대화 ${unreadThreadCount}개`
+            : "모든 대화를 읽었습니다"}
+        </p>
+        <button
+          type="button"
+          onClick={() => setShowUnreadOnly((prev) => !prev)}
+          className="rounded-full border border-neutral-200 px-3 py-1 text-xs font-medium text-neutral-700 hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-200 dark:hover:bg-neutral-800"
+        >
+          {showUnreadOnly ? "전체 보기" : "읽지 않음만"}
+        </button>
+      </div>
+
       {/* Threads list */}
       <div className="grid gap-2">
-        {threadList.length === 0 ? (
+        {sortedThreads.length === 0 ? (
           <div className="rounded-2xl border border-neutral-200 bg-white p-8 text-center dark:border-neutral-800 dark:bg-neutral-950">
             <MessageSquare className="mx-auto h-10 w-10 text-neutral-300 dark:text-neutral-600" />
             <p className="mt-3 text-sm text-neutral-500 dark:text-neutral-400">
-              {t("emptyTitle")}
+              {showUnreadOnly ? "읽지 않은 대화가 없습니다" : t("emptyTitle")}
             </p>
             <p className="mt-1 text-xs text-neutral-400 dark:text-neutral-500">
-              {t("emptyDescription")}
+              {showUnreadOnly ? "전체 보기로 전환해 모든 대화를 확인하세요" : t("emptyDescription")}
             </p>
           </div>
         ) : (
-          threadList.map((thread) => {
+          sortedThreads.map((thread) => {
             const displayName = thread.other_user.display_name ?? thread.other_user.handle;
+            const hasUnread = thread.unread_count > 0;
+            const isMine = thread.last_message?.sender_id === currentUserId;
 
             return (
               <Link
@@ -164,7 +222,11 @@ export function DMInboxClient({ threads, requestCount, currentUserId }: DMInboxC
                     prev.map((t) => (t.id === thread.id ? { ...t, unread_count: 0 } : t))
                   )
                 }
-                className="flex items-center gap-3 rounded-2xl border border-neutral-200 bg-white p-4 transition-colors hover:bg-neutral-50 dark:border-neutral-800 dark:bg-neutral-950 dark:hover:bg-neutral-900"
+                className={`flex items-center gap-3 rounded-2xl border p-4 transition-colors ${
+                  hasUnread
+                    ? "border-neutral-300 bg-neutral-50/70 hover:bg-neutral-100/70 dark:border-neutral-600 dark:bg-neutral-900/80 dark:hover:bg-neutral-900"
+                    : "border-neutral-200 bg-white hover:bg-neutral-50 dark:border-neutral-800 dark:bg-neutral-950 dark:hover:bg-neutral-900"
+                }`}
               >
                 {/* Avatar */}
                 <Avatar
@@ -177,25 +239,26 @@ export function DMInboxClient({ threads, requestCount, currentUserId }: DMInboxC
                 {/* Content */}
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">
-                    <span className={`font-medium ${thread.unread_count > 0 ? "text-black dark:text-white" : ""}`}>
+                    <span className={`font-medium ${hasUnread ? "text-black dark:text-white" : ""}`}>
                       {displayName}
                     </span>
                     <span className="text-xs text-neutral-400">
                       {formatTime(thread.last_message_at)}
                     </span>
-                    {thread.unread_count > 0 && (
-                      <span className="ml-auto flex h-5 w-5 items-center justify-center rounded-full bg-violet-600 text-[10px] font-bold text-white">
+                    {hasUnread && (
+                      <span className="ml-auto flex min-w-5 items-center justify-center rounded-full bg-neutral-900 px-1.5 text-[10px] font-bold text-white dark:bg-white dark:text-black">
                         {thread.unread_count > 9 ? "9+" : thread.unread_count}
                       </span>
                     )}
                   </div>
                   {thread.last_message && (
                     <p className={`mt-0.5 truncate text-sm ${
-                      thread.unread_count > 0 
+                      hasUnread 
                         ? "text-neutral-700 dark:text-neutral-300" 
                         : "text-neutral-500 dark:text-neutral-400"
                     }`}>
-                      {thread.last_message.content}
+                      {isMine ? "나: " : ""}
+                      {getInboxPreview(thread.last_message.content, thread.last_message.image_url)}
                     </p>
                   )}
                 </div>

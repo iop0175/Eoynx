@@ -1,0 +1,111 @@
+  --non-interactive is not supported, use $CI=1 instead
+env: load .env
+env: export EXPO_PUBLIC_SUPABASE_ANON_KEY EXPO_PUBLIC_SUPABASE_REDIRECT_URL EXPO_PUBLIC_SUPABASE_URL
+Starting project at C:\git\Eoynx\eoynx-mobile
+Starting Metro Bundler
+
+warning: Bundler cache is empty, rebuilding (this may take a minute)
+Waiting on http://localhost:8081
+Logs for your project will appear below.
+Android .\index.ts ░░░░░░░░░░░░░░░░  0.0% (0/1)
+Android .\index.ts ▓▓░░░░░░░░░░░░░░ 16.1% ( 89/225)
+Android .\index.ts ▓▓▓▓▓▓▓▓▓▓▓░░░░░ 69.4% (779/936)
+Android Bundled 10542ms index.ts (1492 modules)
+ LOG  [Auth] onAuthStateChange event = SIGNED_IN session = true
+ LOG  [Push] skipped: emulator/simulator
+ LOG  [Auth] onAuthStateChange event = INITIAL_SESSION session = true
+Android .\index.ts ░░░░░░░░░░░░░░░░  0.0% (0/1)
+Android Bundled 111ms index.ts (1 module)
+ LOG  [Auth] onAuthStateChange event = SIGNED_IN session = true
+ LOG  [Push] skipped: emulator/simulator
+ LOG  [Auth] onAuthStateChange event = INITIAL_SESSION session = true
+Android .\index.ts ░░░░░░░░░░░░░░░░  0.0% (0/1)
+Android Bundled 252ms index.ts (1 module)
+ LOG  [Auth] onAuthStateChange event = INITIAL_SESSION session = false
+Android .\index.ts ░░░░░░░░░░░░░░░░  0.0% (0/1)
+Android Bundled 104ms index.ts (1 module)
+ LOG  [Auth] onAuthStateChange event = INITIAL_SESSION session = false
+Android .\index.ts ░░░░░░░░░░░░░░░░  0.0% (0/1)
+Android Bundled 36ms index.ts (1 module)
+ LOG  [Auth] onAuthStateChange event = INITIAL_SESSION session = false
+Android .\index.ts ░░░░░░░░░░░░░░░░  0.0% (0/1)
+Android Bundled 37ms index.ts (1 module)
+ LOG  [Auth] onAuthStateChange event = INITIAL_SESSION session = false
+Android .\index.ts ░░░░░░░░░░░░░░░░  0.0% (0/1)
+Android Bundled 36ms index.ts (1 module)
+ LOG  [Auth] onAuthStateChange event = INITIAL_SESSION session = false
+Android .\index.ts ░░░░░░░░░░░░░░░░  0.0% (0/1)
+Android Bundled 1704ms index.ts (1 module)
+Android .\index.ts ░░░░░░░░░░░░░░░░  0.0% (0/1)
+Android Bundled 61ms index.ts (1 module)
+ WARN  [expo-av]: Expo AV has been deprecated and will be removed in SDK 54. Use the `expo-audio` and `expo-video` packages to replace the required functionality.
+ LOG  ⚠️ [33m[expo-av]: Video component from `expo-av` is deprecated in favor of `expo-video`. See the documentation at https://docs.expo.dev/versions/latest/sdk/video/ for the new API reference.
+ LOG  [Auth] onAuthStateChange event = INITIAL_SESSION session = false
+Android .\index.ts ░░░░░░░░░░░░░░░░  0.0% (0/1)
+Android Bundled 37ms index.ts (1 module)
+ WARN  [expo-av]: Expo AV has been deprecated and will be removed in SDK 54. Use the `expo-audio` and `expo-video` packages to replace the required functionality.
+ LOG  ⚠️ [33m[expo-av]: Video component from `expo-av` is deprecated in favor of `expo-video`. See the documentation at https://docs.expo.dev/versions/latest/sdk/video/ for the new API reference.
+ LOG  [Auth] onAuthStateChange event = INITIAL_SESSION session = false
+Android .\index.ts ░░░░░░░░░░░░░░░░  0.0% (0/1)
+Android Bundled 45ms index.ts (1 module)
+ WARN  [expo-av]: Expo AV has been deprecated and will be removed in SDK 54. Use the `expo-audio` and `expo-video` packages to replace the required functionality.
+ LOG  [Auth] onAuthStateChange event = INITIAL_SESSION session = false
+ LOG  ⚠️ [33m[expo-av]: Video component from `expo-av` is deprecated in favor of `expo-video`. See the documentation at https://docs.expo.dev/versions/latest/sdk/video/ for the new API reference.
+Android .\index.ts ░░░░░░░░░░░░░░░░  0.0% (0/1)
+Android Bundled 1095ms index.ts (1 module)
+ LOG  [Auth] onAuthStateChange event = INITIAL_SESSION session = false
+Android .\index.ts ░░░░░░░░░░░░░░░░  0.0% (0/1)
+Android Bundled 38ms index.ts (1 module)
+ LOG  [Auth] onAuthStateChange event = INITIAL_SESSION session = false
+Android .\index.ts ░░░░░░░░░░░░░░░░  0.0% (0/1)
+Android Bundled 37ms index.ts (1 module)
+ LOG  [Auth] onAuthStateChange event = INITIAL_SESSION session = false
+Android .\index.ts ░░░░░░░░░░░░░░░░  0.0% (0/1)
+Android Bundled 37ms index.ts (1 module)
+ LOG  [Auth] onAuthStateChange event = INITIAL_SESSION session = false
+ LOG  [OAuth] envRedirectTo = eoynxmobile://auth/callback
+ LOG  [OAuth] fallbackRedirectTo = eoynxmobile://auth/callback
+ LOG  [OAuth] redirectTo = eoynxmobile://auth/callback
+ LOG  [OAuth] authUrl = https://gjsoavcxxrlnyqdzmsru.supabase.co/auth/v1/authorize?provider=google&redirect_to=eoynxmobile%3A%2F%2Fauth%2Fcallback
+ LOG  [OAuth] browserResultType = opened
+ LOG  [OAuth] callbackUrl = eoynxmobile://auth/callback#access_token=eyJhbGciOiJFUzI1NiIsImtpZCI6IjE4OGJhZDhkLWFmMGItNDllYS05ZTg4LTUwMDhlODJmNjliZCIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJodHRwczovL2dqc29hdmN4eHJsbnlxZHptc3J1LnN1cGFiYXNlLmNvL2F1dGgvdjEiLCJzdWIiOiI3ZWY3N2JhNC1jNzliLTQ5NTUtYmU1MC1hYThlNTdmMTUwMGYiLCJhdWQiOiJhdXRoZW50aWNhdGVkIiwiZXhwIjoxNzczNDUyNDczLCJpYXQiOjE3NzM0NDg4NzMsImVtYWlsIjoiZGFlZ2lldW43MDBAZ21haWwuY29tIiwicGhvbmUiOiIiLCJhcHBfbWV0YWRhdGEiOnsicHJvdmlkZXIiOiJnb29nbGUiLCJwcm92aWRlcnMiOlsiZ29vZ2xlIl19LCJ1c2VyX21ldGFkYXRhIjp7ImF2YXRhcl91cmwiOiJodHRwczovL2xoMy5nb29nbGV1c2VyY29udGVudC5jb20vYS9BQ2c4b2NMZkl5UVlTTG9ucXluUGhZM0VDX21xZ2NCbUMwb1BYb0duMkFvQUt3ZDBpYW1NcWc9czk2LWMiLCJlbWFpbCI6ImRhZWdpZXVuNzAwQGdtYWlsLmNvbSIsImVtYWlsX3ZlcmlmaWVkIjp0cnVlLCJmdWxsX25hbWUiOiLsnYDrjIDquLAiLCJpc3MiOiJodHRwczovL2FjY291bnRzLmdvb2dsZS5jb20iLCJuYW1lIjoi7J2A64yA6riwIiwicGhvbmVfdmVyaWZpZWQiOmZhbHNlLCJwaWN0dXJlIjoiaHR0cHM6Ly9saDMuZ29vZ2xldXNlcmNvbnRlbnQuY29tL2EvQUNnOG9jTGZJeVFZU0xvbnF5blBoWTNFQ19tcWdjQm1DMG9QWG9HbjJBb0FLd2QwaWFtTXFnPXM5Ni1jIiwicHJpdmFjeV9jb25zZW50Ijp0cnVlLCJwcml2YWN5X2NvbnNlbnRfYXQiOiIyMDI2LTAzLTEzVDA0OjQ3OjQ1LjI3MVoiLCJwcml2YWN5X2NvbnNlbnRfdmVyc2lvbiI6IjIwMjYtMDMtMTMiLCJwcm92aWRlcl9pZCI6IjEwMDYyNjQxOTQ1NzkxMTgwNzcyMSIsInN1YiI6IjEwMDYyNjQxOTQ1NzkxMTgwNzcyMSJ9LCJyb2xlIjoiYXV0aGVudGljYXRlZCIsImFhbCI6ImFhbDEiLCJhbXIiOlt7Im1ldGhvZCI6Im9hdXRoIiwidGltZXN0YW1wIjoxNzczNDQ4ODczfV0sInNlc3Npb25faWQiOiIzZjQ5NWE2Zi0zYTY2LTQ4ZmEtOTg4Ny1mYzdlYTMwZGQ3ZjAiLCJpc19hbm9ueW1vdXMiOmZhbHNlfQ.iKHbecqcRR08FkPPkirtGvvXWw7GyzTEPbY9lnbFE-kDv_oYNLosX1AkRxKjiaVJ0vN5P6pGn0Hvn-VG_vGKHA&expires_at=1773452473&expires_in=3600&provider_token=ya29.A0ATkoCc5XIn6ssUakS539cy8haDIN-m2nVYDeJlnhCjwSsFgcBtNb0pwxpE29hlRMOg2GsDKDdbSiQJ7aNAN4HHFl_0CMloYyaqe6jsvLE1WYB8LqLmMIajRI1r82FYEgf4xXjL03AYnw_yMMYn3-TvC88Zj1xkYEaOMsmxwEK_lsplrzGpUGh3C37x2DoDDELiNW1xg6RvQvcZiPS_sYuXZyj8G1ggNgdV6FSPNLpAwlrfhlvCCZUW_s2zYKVYASAcQ7kSSq2Bv10_1-IJM6Wj1G3nEaCgYKAQ0SARcSFQHGX2MiGAmLe2ikh1MTPWojZbpyag0290&refresh_token=hyeszjcl5cvo&sb=&token_type=bearer
+ LOG  [OAuth] token callback detected
+ LOG  [Auth] onAuthStateChange event = SIGNED_IN session = true
+ LOG  [Push] skipped: emulator/simulator
+ LOG  [Auth] onAuthStateChange event = SIGNED_OUT session = false
+ LOG  [OAuth] envRedirectTo = eoynxmobile://auth/callback
+ LOG  [OAuth] fallbackRedirectTo = eoynxmobile://auth/callback
+ LOG  [OAuth] redirectTo = eoynxmobile://auth/callback
+ LOG  [OAuth] authUrl = https://gjsoavcxxrlnyqdzmsru.supabase.co/auth/v1/authorize?provider=google&redirect_to=eoynxmobile%3A%2F%2Fauth%2Fcallback
+ LOG  [OAuth] browserResultType = opened
+ LOG  [OAuth] callbackUrl = eoynxmobile://auth/callback#access_token=eyJhbGciOiJFUzI1NiIsImtpZCI6IjE4OGJhZDhkLWFmMGItNDllYS05ZTg4LTUwMDhlODJmNjliZCIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJodHRwczovL2dqc29hdmN4eHJsbnlxZHptc3J1LnN1cGFiYXNlLmNvL2F1dGgvdjEiLCJzdWIiOiI3ZWY3N2JhNC1jNzliLTQ5NTUtYmU1MC1hYThlNTdmMTUwMGYiLCJhdWQiOiJhdXRoZW50aWNhdGVkIiwiZXhwIjoxNzczNDUyNDkxLCJpYXQiOjE3NzM0NDg4OTEsImVtYWlsIjoiZGFlZ2lldW43MDBAZ21haWwuY29tIiwicGhvbmUiOiIiLCJhcHBfbWV0YWRhdGEiOnsicHJvdmlkZXIiOiJnb29nbGUiLCJwcm92aWRlcnMiOlsiZ29vZ2xlIl19LCJ1c2VyX21ldGFkYXRhIjp7ImF2YXRhcl91cmwiOiJodHRwczovL2xoMy5nb29nbGV1c2VyY29udGVudC5jb20vYS9BQ2c4b2NMZkl5UVlTTG9ucXluUGhZM0VDX21xZ2NCbUMwb1BYb0duMkFvQUt3ZDBpYW1NcWc9czk2LWMiLCJlbWFpbCI6ImRhZWdpZXVuNzAwQGdtYWlsLmNvbSIsImVtYWlsX3ZlcmlmaWVkIjp0cnVlLCJmdWxsX25hbWUiOiLsnYDrjIDquLAiLCJpc3MiOiJodHRwczovL2FjY291bnRzLmdvb2dsZS5jb20iLCJuYW1lIjoi7J2A64yA6riwIiwicGhvbmVfdmVyaWZpZWQiOmZhbHNlLCJwaWN0dXJlIjoiaHR0cHM6Ly9saDMuZ29vZ2xldXNlcmNvbnRlbnQuY29tL2EvQUNnOG9jTGZJeVFZU0xvbnF5blBoWTNFQ19tcWdjQm1DMG9QWG9HbjJBb0FLd2QwaWFtTXFnPXM5Ni1jIiwicHJpdmFjeV9jb25zZW50Ijp0cnVlLCJwcml2YWN5X2NvbnNlbnRfYXQiOiIyMDI2LTAzLTEzVDA0OjQ3OjQ1LjI3MVoiLCJwcml2YWN5X2NvbnNlbnRfdmVyc2lvbiI6IjIwMjYtMDMtMTMiLCJwcm92aWRlcl9pZCI6IjEwMDYyNjQxOTQ1NzkxMTgwNzcyMSIsInN1YiI6IjEwMDYyNjQxOTQ1NzkxMTgwNzcyMSJ9LCJyb2xlIjoiYXV0aGVudGljYXRlZCIsImFhbCI6ImFhbDEiLCJhbXIiOlt7Im1ldGhvZCI6Im9hdXRoIiwidGltZXN0YW1wIjoxNzczNDQ4ODkxfV0sInNlc3Npb25faWQiOiIzOWExMTJlNi00MDdkLTQwM2QtYWVhOC1jNThjMzM0NjQxMWQiLCJpc19hbm9ueW1vdXMiOmZhbHNlfQ.cGvFBRkOPbgKPtcbweVL6d-o-ldG98tMvFxbCJz4_oQaCSowZP_7zj9M_MfjeaTJo0MAKDoyySQs83AytDncSQ&expires_at=1773452491&expires_in=3600&provider_token=ya29.A0ATkoCc58HbIOtvgaD7SkhJ5rCUIWhRNuFJVAYfcUrtAHb5WwxFheSMQPWgvZcM-iRh4drBGHwy0RQoRzm2uQMGlQSQg6jYCOsLdlONUdqVgGx0BKw2xMvqBYq4cmo9l4QkK_UOzT1N_vRAf799dwFybCgJG7gGxxwz9Zn5e9b-pCmrNlfnYqAh8ji1dCnyf_i8ZXmaVJqJWhksfuFbLnSsOLox3JzW3M2UHRQhu0vQCKd6R2N42oVxqXYZpFkKR5pxq0VD98ltpNDpAjyHnrCflrkAhAaCgYKAV4SARcSFQHGX2MiHdcpETsvOYWrmY0K7qFqFQ0291&refresh_token=5bwkl5edlqvx&sb=&token_type=bearer
+ LOG  [OAuth] token callback detected
+ LOG  [Auth] onAuthStateChange event = SIGNED_IN session = true
+ LOG  [Push] skipped: emulator/simulator
+Android .\index.ts ░░░░░░░░░░░░░░░░  0.0% (0/1)
+Android Bundled 42ms index.ts (1 module)
+ LOG  [Auth] onAuthStateChange event = INITIAL_SESSION session = true
+ LOG  [Push] skipped: emulator/simulator
+Android .\index.ts ░░░░░░░░░░░░░░░░  0.0% (0/1)
+Android Bundled 43ms index.ts (1 module)
+ LOG  [Auth] onAuthStateChange event = INITIAL_SESSION session = true
+ LOG  [Push] skipped: emulator/simulator
+Android .\index.ts ░░░░░░░░░░░░░░░░  0.0% (0/1)
+Android Bundled 37ms index.ts (1 module)
+ LOG  [Auth] onAuthStateChange event = INITIAL_SESSION session = true
+ LOG  [Push] skipped: emulator/simulator
+Android .\index.ts ░░░░░░░░░░░░░░░░  0.0% (0/1)
+Android Bundled 37ms index.ts (1 module)
+ LOG  [Auth] onAuthStateChange event = INITIAL_SESSION session = true
+ LOG  [Push] skipped: emulator/simulator
+ LOG  [Auth] onAuthStateChange event = SIGNED_OUT session = false
+ LOG  [OAuth] envRedirectTo = eoynxmobile://auth/callback
+ LOG  [OAuth] fallbackRedirectTo = eoynxmobile://auth/callback
+ LOG  [OAuth] redirectTo = eoynxmobile://auth/callback
+ LOG  [OAuth] authUrl = https://gjsoavcxxrlnyqdzmsru.supabase.co/auth/v1/authorize?provider=google&redirect_to=eoynxmobile%3A%2F%2Fauth%2Fcallback
+ LOG  [OAuth] browserResultType = opened
+ LOG  [OAuth] callbackUrl = eoynxmobile://auth/callback#access_token=eyJhbGciOiJFUzI1NiIsImtpZCI6IjE4OGJhZDhkLWFmMGItNDllYS05ZTg4LTUwMDhlODJmNjliZCIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJodHRwczovL2dqc29hdmN4eHJsbnlxZHptc3J1LnN1cGFiYXNlLmNvL2F1dGgvdjEiLCJzdWIiOiJlM2Q5ZDk3ZS1hNmIyLTQyY2YtOTEyOS0zMmJhODhmZGEwY2UiLCJhdWQiOiJhdXRoZW50aWNhdGVkIiwiZXhwIjoxNzczNDUzMjk4LCJpYXQiOjE3NzM0NDk2OTgsImVtYWlsIjoiZGFlZ2lldW43MDBAZ21haWwuY29tIiwicGhvbmUiOiIiLCJhcHBfbWV0YWRhdGEiOnsicHJvdmlkZXIiOiJnb29nbGUiLCJwcm92aWRlcnMiOlsiZ29vZ2xlIl19LCJ1c2VyX21ldGFkYXRhIjp7ImF2YXRhcl91cmwiOiJodHRwczovL2xoMy5nb29nbGV1c2VyY29udGVudC5jb20vYS9BQ2c4b2NMZkl5UVlTTG9ucXluUGhZM0VDX21xZ2NCbUMwb1BYb0duMkFvQUt3ZDBpYW1NcWc9czk2LWMiLCJlbWFpbCI6ImRhZWdpZXVuNzAwQGdtYWlsLmNvbSIsImVtYWlsX3ZlcmlmaWVkIjp0cnVlLCJmdWxsX25hbWUiOiLsnYDrjIDquLAiLCJpc3MiOiJodHRwczovL2FjY291bnRzLmdvb2dsZS5jb20iLCJuYW1lIjoi7J2A64yA6riwIiwicGhvbmVfdmVyaWZpZWQiOmZhbHNlLCJwaWN0dXJlIjoiaHR0cHM6Ly9saDMuZ29vZ2xldXNlcmNvbnRlbnQuY29tL2EvQUNnOG9jTGZJeVFZU0xvbnF5blBoWTNFQ19tcWdjQm1DMG9QWG9HbjJBb0FLd2QwaWFtTXFnPXM5Ni1jIiwicHJvdmlkZXJfaWQiOiIxMDA2MjY0MTk0NTc5MTE4MDc3MjEiLCJzdWIiOiIxMDA2MjY0MTk0NTc5MTE4MDc3MjEifSwicm9sZSI6ImF1dGhlbnRpY2F0ZWQiLCJhYWwiOiJhYWwxIiwiYW1yIjpbeyJtZXRob2QiOiJvYXV0aCIsInRpbWVzdGFtcCI6MTc3MzQ0OTY5OH1dLCJzZXNzaW9uX2lkIjoiMWZhNGNmOGYtNThjYS00MzQxLWFhZmYtNGM5Yzk2NGFjNWZiIiwiaXNfYW5vbnltb3VzIjpmYWxzZX0.yEpT9GyBUwVX8zjAd-u-mqbyif5GlODRiTC-zaIGH_csypd8n0CAi6w-QuqE5Koy9dAcXd2igwrFqiupHlxp7g&expires_at=1773453298&expires_in=3600&provider_token=ya29.A0ATkoCc5lzSZx-rYWxtdcum6b5krgb6qJBTKwXUdwzogjpn9Bi_ejkJW1lBTw1jJVWEa-4lNBlfUbSKJFLMW4kWfocbOOsaE0whHmNHWQ1jj4VTZQ3sOSoXyfOqCRLxf6OIQUNYOiiuW96i6BjT02JXk8zIOk7oAOvqaSH2f1HfazGM71ioQf03W626JGBNRpSENcl9TzrPqzO_79V6Uu0rQyQslpyzTyFjtAco0PTNptxeAiSJrNAHfo70tpthjkiDwZaLK58jcHdEftcRtn-3PupDeiaCgYKAcESARcSFQHGX2MiNDfODjsnHJLBbubnVs2dEw0291&refresh_token=jik4xljfto2o&sb=&token_type=bearer
+ LOG  [OAuth] token callback detected
+ LOG  [Auth] onAuthStateChange event = SIGNED_IN session = true
+ LOG  [Push] skipped: emulator/simulator
+ LOG  [Auth] onAuthStateChange event = USER_UPDATED session = true

@@ -8,7 +8,7 @@ import { createNotification } from "./notifications";
 // Add Comment
 // =====================================================
 
-export async function addComment(itemId: string, content: string) {
+export async function addComment(itemId: string, content: string, parentId?: string) {
   const supabase = await createSupabaseServerClient();
   const { data: { user } } = await supabase.auth.getUser();
 
@@ -25,14 +25,31 @@ export async function addComment(itemId: string, content: string) {
     return { error: "댓글은 1000자 이하로 입력해주세요" };
   }
 
+  if (parentId) {
+    const { data: parent, error: parentError } = await supabase
+      .from("comments")
+      .select("id, item_id")
+      .eq("id", parentId)
+      .single();
+
+    if (parentError || !parent) {
+      return { error: "원본 댓글을 찾을 수 없습니다" };
+    }
+
+    if (parent.item_id !== itemId) {
+      return { error: "잘못된 댓글 요청입니다" };
+    }
+  }
+
   const { data: comment, error } = await supabase
     .from("comments")
     .insert({
       item_id: itemId,
       user_id: user.id,
       content: trimmedContent,
+      parent_id: parentId ?? null,
     })
-    .select("id, content, created_at")
+    .select("id, content, created_at, parent_id")
     .single();
 
   if (error) {
@@ -78,6 +95,16 @@ export async function updateComment(commentId: string, content: string) {
     return { error: "댓글 내용을 입력해주세요" };
   }
 
+  const { data: targetComment, error: targetError } = await supabase
+    .from("comments")
+    .select("item_id")
+    .eq("id", commentId)
+    .single();
+
+  if (targetError || !targetComment) {
+    return { error: "댓글을 찾을 수 없습니다" };
+  }
+
   const { error } = await supabase
     .from("comments")
     .update({ content: trimmedContent })
@@ -88,6 +115,7 @@ export async function updateComment(commentId: string, content: string) {
     return { error: error.message };
   }
 
+  revalidatePath(`/i/${targetComment.item_id}`);
   return { success: true };
 }
 
@@ -103,17 +131,21 @@ export async function deleteComment(commentId: string, itemId: string) {
     return { error: "로그인이 필요합니다" };
   }
 
-  const { error } = await supabase
-    .from("comments")
-    .delete()
-    .eq("id", commentId);
+  const { data, error } = await supabase.rpc("delete_comment_with_policy", {
+    p_comment_id: commentId,
+  });
 
   if (error) {
     return { error: error.message };
   }
 
   revalidatePath(`/i/${itemId}`);
-  return { success: true };
+  const mode =
+    data && typeof data === "object" && "mode" in data
+      ? (data.mode as string)
+      : null;
+
+  return { success: true, mode };
 }
 
 // =====================================================
@@ -124,7 +156,9 @@ export type CommentWithUser = {
   id: string;
   content: string;
   created_at: string;
+  updated_at?: string;
   user_id: string;
+  parent_id: string | null;
   profiles: {
     handle: string;
     display_name: string | null;
@@ -137,7 +171,7 @@ export async function getComments(itemId: string, limit = 50, offset = 0) {
 
   const { data: comments, error, count } = await supabase
     .from("comments")
-    .select("id, content, created_at, user_id, profiles(handle, display_name, avatar_url)", { count: "exact" })
+    .select("id, content, created_at, updated_at, user_id, parent_id, profiles(handle, display_name, avatar_url)", { count: "exact" })
     .eq("item_id", itemId)
     .order("created_at", { ascending: false })
     .range(offset, offset + limit - 1)

@@ -20,13 +20,20 @@ const geistMono = Geist_Mono({
   preload: true,
 });
 
+const SITE_URL = (process.env.NEXT_PUBLIC_SITE_URL ?? "https://eoynx.com").trim();
+
 export const metadata: Metadata = {
   title: {
     default: "EOYNX",
     template: "%s · EOYNX",
   },
   description: "Public luxury collections. SEO-first.",
-  metadataBase: new URL("https://eoynx.com"),
+  metadataBase: new URL(SITE_URL),
+  icons: {
+    icon: [{ url: "/logo-mark.png", type: "image/png" }],
+    apple: [{ url: "/logo-mark.png", type: "image/png" }],
+    shortcut: ["/logo-mark.png"],
+  },
 };
 
 export default async function RootLayout({

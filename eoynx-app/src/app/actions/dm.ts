@@ -28,6 +28,7 @@ export type DMThread = {
     content: string;
     sender_id: string;
     created_at: string;
+    image_url?: string | null;
   };
   unread_count: number;
 };
@@ -440,11 +441,18 @@ export async function getThreads() {
   const threadIds = activeThreads.map((t) => t.id);
   const { data: lastMessages } = await supabase
     .from("dm_messages")
-    .select("thread_id, sender_id, created_at, encrypted_content, iv")
+    .select("thread_id, sender_id, created_at, encrypted_content, iv, image_url")
     .in("thread_id", threadIds)
     .order("created_at", { ascending: false });
 
-  type LastMessage = { thread_id: string; sender_id: string; created_at: string; encrypted_content?: string; iv?: string };
+  type LastMessage = {
+    thread_id: string;
+    sender_id: string;
+    created_at: string;
+    encrypted_content?: string;
+    iv?: string;
+    image_url?: string | null;
+  };
   const lastMessageMap = new Map<string, LastMessage>();
   lastMessages?.forEach((m) => {
     if (!lastMessageMap.has(m.thread_id)) {
@@ -486,6 +494,8 @@ export async function getThreads() {
     let displayContent = "";
     if (lastMessage?.encrypted_content && lastMessage.iv && roomKey) {
       displayContent = decryptDMContent(roomKey, lastMessage.encrypted_content, lastMessage.iv);
+    } else if (lastMessage?.image_url) {
+      displayContent = "Photo";
     }
 
     return {
@@ -504,6 +514,7 @@ export async function getThreads() {
             content: displayContent,
             sender_id: lastMessage.sender_id,
             created_at: lastMessage.created_at,
+            image_url: lastMessage.image_url ?? null,
           }
         : undefined,
       unread_count: unreadMap.get(t.id) ?? 0,

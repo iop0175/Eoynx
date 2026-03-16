@@ -4,6 +4,9 @@ import {
   Alert,
   FlatList,
   Image,
+  Linking,
+  NativeScrollEvent,
+  NativeSyntheticEvent,
   Pressable,
   StyleSheet,
   Text,
@@ -15,10 +18,12 @@ import * as ImagePicker from "expo-image-picker";
 import * as FileSystemLegacy from "expo-file-system/legacy";
 import { decode } from "base64-arraybuffer";
 import { Image as ExpoImage } from "expo-image";
+import { useI18n } from "../../i18n";
 import { supabase } from "../../lib/supabase";
 import { canUseWebCrypto, decryptWithRoomKey, encryptWithRoomKey, importRoomKey } from "../../lib/dmCrypto";
 import type { FeedStackParamList } from "../../navigation/types";
 import { webUi } from "../../theme/webUi";
+import type { Item } from "../../types/item";
 
 type Props = NativeStackScreenProps<FeedStackParamList, "DMThread">;
 
@@ -33,8 +38,64 @@ type Message = {
   read_at: string | null;
 };
 
-export function DMThreadScreen({ route }: Props) {
-  const { threadId, otherHandle, otherName, otherAvatarUrl } = route.params;
+type SharedItemPreview = {
+  id: string;
+  title: string;
+  image_url: string | null;
+  brand: string | null;
+  category: string | null;
+};
+
+function areMessagesEqual(prev: Message[], next: Message[]) {
+  if (prev.length !== next.length) return false;
+  for (let i = 0; i < prev.length; i += 1) {
+    const a = prev[i];
+    const b = next[i];
+    if (
+      a.id !== b.id ||
+      a.sender_id !== b.sender_id ||
+      a.content !== b.content ||
+      a.is_encrypted !== b.is_encrypted ||
+      a.iv !== b.iv ||
+      a.image_url !== b.image_url ||
+      a.created_at !== b.created_at ||
+      a.read_at !== b.read_at
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function parseSharedItemMessage(raw: string) {
+  const normalized = raw.trim();
+  const match =
+    normalized.match(/^피드를 공유했습니다\n(.+)\n(https?:\/\/[^\s]+\/i\/[a-f0-9-]+)$/i) ??
+    normalized.match(/^📦\s+(.+)\n(https?:\/\/[^\s]+\/i\/[a-f0-9-]+)$/i);
+  if (!match) return null;
+
+  let path = "";
+  let itemId = "";
+  try {
+    const parsed = new URL(match[2].trim());
+    path = parsed.pathname;
+    const idMatch = path.match(/^\/i\/([a-f0-9-]+)$/i);
+    itemId = idMatch?.[1] ?? "";
+  } catch {
+    // Keep fallback values empty when URL parsing fails.
+  }
+
+  return {
+    title: match[1].trim(),
+    url: match[2].trim(),
+    path,
+    itemId,
+  };
+}
+
+export function DMThreadScreen({ route, navigation }: Props) {
+  const { t } = useI18n();
+  const { threadId, otherHandle, otherName, otherAvatarUrl, prefillText } = route.params;
   const [loading, setLoading] = useState(true);
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
@@ -44,11 +105,31 @@ export function DMThreadScreen({ route }: Props) {
   const [realtimeReady, setRealtimeReady] = useState(false);
   const [selectedImageUri, setSelectedImageUri] = useState<string | null>(null);
   const [selectedImageMimeType, setSelectedImageMimeType] = useState("image/jpeg");
+  const [incomingBadgeCount, setIncomingBadgeCount] = useState(0);
+  const [latestIncomingMessageId, setLatestIncomingMessageId] = useState<string | null>(null);
+  const [highlightedMessageId, setHighlightedMessageId] = useState<string | null>(null);
+  const [sharedItemPreviews, setSharedItemPreviews] = useState<Record<string, SharedItemPreview>>({});
+  const [openingProfile, setOpeningProfile] = useState(false);
   const reloadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const highlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const listRef = useRef<FlatList<Message> | null>(null);
+  const isNearBottomRef = useRef(true);
+  const initializedMessagesRef = useRef(false);
+  const lastMessageIdRef = useRef<string | null>(null);
+  const didInitialScrollRef = useRef(false);
 
   useEffect(() => {
     void loadMessages();
   }, [threadId]);
+
+  useEffect(() => {
+    didInitialScrollRef.current = false;
+  }, [threadId]);
+
+  useEffect(() => {
+    if (!prefillText) return;
+    setInput((prev) => (prev.trim().length > 0 ? prev : prefillText));
+  }, [prefillText]);
 
   useEffect(() => {
     const scheduleReload = () => {
@@ -100,6 +181,10 @@ export function DMThreadScreen({ route }: Props) {
         clearTimeout(reloadTimerRef.current);
         reloadTimerRef.current = null;
       }
+      if (highlightTimerRef.current) {
+        clearTimeout(highlightTimerRef.current);
+        highlightTimerRef.current = null;
+      }
       void supabase.removeChannel(channel);
       void supabase.removeChannel(threadChannel);
     };
@@ -111,6 +196,47 @@ export function DMThreadScreen({ route }: Props) {
     }, realtimeReady ? 2000 : 1200);
     return () => clearInterval(interval);
   }, [realtimeReady, threadId]);
+
+  useEffect(() => {
+    const sharedIds = Array.from(
+      new Set(
+        messages
+          .map((message) => (message.content ? parseSharedItemMessage(message.content) : null))
+          .filter((shared): shared is NonNullable<ReturnType<typeof parseSharedItemMessage>> => Boolean(shared?.itemId))
+          .map((shared) => shared.itemId)
+      )
+    );
+
+    const missingIds = sharedIds.filter((id) => !sharedItemPreviews[id]);
+    if (missingIds.length === 0) return;
+
+    let cancelled = false;
+    void (async () => {
+      const { data, error } = await supabase
+        .from("items")
+        .select("id,title,image_url,brand,category")
+        .in("id", missingIds);
+
+      if (cancelled || error || !data) return;
+      setSharedItemPreviews((prev) => {
+        const next = { ...prev };
+        for (const row of data) {
+          next[row.id] = {
+            id: row.id,
+            title: row.title,
+            image_url: row.image_url,
+            brand: row.brand,
+            category: row.category,
+          };
+        }
+        return next;
+      });
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [messages, sharedItemPreviews]);
 
   const resolveMessageImageUrl = async (storedValue: string | null): Promise<string | null> => {
     if (!storedValue) return null;
@@ -145,7 +271,7 @@ export function DMThreadScreen({ route }: Props) {
     const { data: authData, error: authError } = await supabase.auth.getUser();
     if (authError || !authData.user) {
       if (!silent) setLoading(false);
-      Alert.alert("Auth Error", authError?.message ?? "No authenticated user.");
+      Alert.alert(t("alert.authError"), authError?.message ?? t("common.unknownError"));
       return;
     }
     const uid = authData.user.id;
@@ -159,7 +285,7 @@ export function DMThreadScreen({ route }: Props) {
 
     if (threadError) {
       if (!silent) setLoading(false);
-      Alert.alert("Load Error", threadError.message);
+      Alert.alert(t("alert.loadError"), threadError.message);
       return;
     }
     const resolvedRoomKey = threadData?.room_key ?? null;
@@ -176,7 +302,7 @@ export function DMThreadScreen({ route }: Props) {
 
     if (error) {
       if (!silent) setLoading(false);
-      Alert.alert("Load Error", error.message);
+      Alert.alert(t("alert.loadError"), error.message);
       return;
     }
 
@@ -198,12 +324,12 @@ export function DMThreadScreen({ route }: Props) {
           const decrypted = importedRoomKey
             ? await decryptWithRoomKey(importedRoomKey, row.encrypted_content, row.iv)
             : null;
-          content = decrypted ?? "Encrypted message";
+          content = decrypted ?? t("dm.encryptedMessage");
           if (!decrypted) {
             console.log("[DM Crypto] decrypt failed", { messageId: row.id, hasIv: Boolean(row.iv) });
           }
         } else if (row.is_encrypted) {
-          content = "Encrypted message";
+          content = t("dm.encryptedMessage");
         }
         return {
           id: row.id,
@@ -218,7 +344,7 @@ export function DMThreadScreen({ route }: Props) {
       })
     );
 
-    setMessages(nextMessages);
+    setMessages((prev) => (areMessagesEqual(prev, nextMessages) ? prev : nextMessages));
     if (!silent) setLoading(false);
 
     await supabase
@@ -229,6 +355,64 @@ export function DMThreadScreen({ route }: Props) {
       .is("read_at", null);
   };
 
+  useEffect(() => {
+    if (messages.length === 0) return;
+    if (!didInitialScrollRef.current) {
+      didInitialScrollRef.current = true;
+      requestAnimationFrame(() => {
+        listRef.current?.scrollToEnd({ animated: false });
+      });
+    }
+    const latest = messages[messages.length - 1];
+
+    if (!initializedMessagesRef.current) {
+      initializedMessagesRef.current = true;
+      lastMessageIdRef.current = latest.id;
+      return;
+    }
+    if (lastMessageIdRef.current === latest.id) return;
+    lastMessageIdRef.current = latest.id;
+
+    const isIncoming = Boolean(userId) && latest.sender_id !== userId;
+    if (!isIncoming) {
+      requestAnimationFrame(() => listRef.current?.scrollToEnd({ animated: true }));
+      return;
+    }
+
+    if (isNearBottomRef.current) {
+      requestAnimationFrame(() => listRef.current?.scrollToEnd({ animated: true }));
+      return;
+    }
+
+    setLatestIncomingMessageId(latest.id);
+    setIncomingBadgeCount((prev) => prev + 1);
+  }, [messages, userId]);
+
+  const handleMessagesScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+    const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
+    const distanceFromBottom = contentSize.height - (contentOffset.y + layoutMeasurement.height);
+    const nearBottom = distanceFromBottom < 80;
+    isNearBottomRef.current = nearBottom;
+
+    if (nearBottom && incomingBadgeCount > 0) {
+      setIncomingBadgeCount(0);
+      setLatestIncomingMessageId(null);
+    }
+  };
+
+  const focusLatestIncomingMessage = () => {
+    listRef.current?.scrollToEnd({ animated: true });
+    setIncomingBadgeCount(0);
+    if (latestIncomingMessageId) {
+      setHighlightedMessageId(latestIncomingMessageId);
+      if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current);
+      highlightTimerRef.current = setTimeout(() => {
+        setHighlightedMessageId(null);
+      }, 1800);
+    }
+    setLatestIncomingMessageId(null);
+  };
+
   const sendMessage = async () => {
     const content = input.trim();
     if (!content && !selectedImageUri) return;
@@ -236,14 +420,16 @@ export function DMThreadScreen({ route }: Props) {
 
     setSending(true);
     let imagePath: string | null = null;
+    let imageSignedUrl: string | null = null;
     if (selectedImageUri) {
       try {
         const uploaded = await uploadDMImage(selectedImageUri, selectedImageMimeType, userId);
         imagePath = uploaded.imagePath;
+        imageSignedUrl = uploaded.imageUrl;
       } catch (error) {
         setSending(false);
-        const message = error instanceof Error ? error.message : "Image upload failed.";
-        Alert.alert("Upload Error", message);
+        const message = error instanceof Error ? error.message : t("common.unknownError");
+        Alert.alert(t("alert.shareError"), message);
         return;
       }
     }
@@ -266,11 +452,15 @@ export function DMThreadScreen({ route }: Props) {
           image_url: imagePath,
         };
 
-    const { error } = await supabase.from("dm_messages").insert(insertPayload);
+    const { data: inserted, error } = await supabase
+      .from("dm_messages")
+      .insert(insertPayload)
+      .select("id,sender_id,created_at,read_at")
+      .single();
 
-    if (error) {
+    if (error || !inserted) {
       setSending(false);
-      Alert.alert("Send Error", error.message);
+      Alert.alert(t("alert.shareError"), error?.message ?? t("common.unknownError"));
       return;
     }
 
@@ -283,6 +473,32 @@ export function DMThreadScreen({ route }: Props) {
     setSelectedImageUri(null);
     setSelectedImageMimeType("image/jpeg");
     setSending(false);
+
+    const mineMessage: Message = {
+      id: inserted.id,
+      sender_id: inserted.sender_id,
+      content,
+      is_encrypted: Boolean(roomCryptoKey),
+      iv: encrypted?.iv ?? null,
+      image_url: imageSignedUrl,
+      created_at: inserted.created_at,
+      read_at: inserted.read_at,
+    };
+
+    setMessages((prev) => {
+      if (prev.some((message) => message.id === mineMessage.id)) return prev;
+      return [...prev, mineMessage];
+    });
+
+    setHighlightedMessageId(mineMessage.id);
+    if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current);
+    highlightTimerRef.current = setTimeout(() => {
+      setHighlightedMessageId(null);
+    }, 1200);
+
+    requestAnimationFrame(() => {
+      listRef.current?.scrollToEnd({ animated: true });
+    });
     void loadMessages({ silent: true });
   };
 
@@ -331,7 +547,7 @@ export function DMThreadScreen({ route }: Props) {
   const pickImageFromLibrary = async () => {
     const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!permission.granted) {
-      Alert.alert("Permission Required", "Please allow gallery access.");
+      Alert.alert(t("alert.authRequired"), t("dm.gallery"));
       return;
     }
 
@@ -350,7 +566,7 @@ export function DMThreadScreen({ route }: Props) {
   const pickImageFromCamera = async () => {
     const permission = await ImagePicker.requestCameraPermissionsAsync();
     if (!permission.granted) {
-      Alert.alert("Permission Required", "Please allow camera access.");
+      Alert.alert(t("alert.authRequired"), t("dm.camera"));
       return;
     }
 
@@ -368,10 +584,10 @@ export function DMThreadScreen({ route }: Props) {
   };
 
   const openImagePicker = () => {
-    Alert.alert("Attach image", "Choose source", [
-      { text: "Gallery", onPress: () => void pickImageFromLibrary() },
-      { text: "Camera", onPress: () => void pickImageFromCamera() },
-      { text: "Cancel", style: "cancel" },
+    Alert.alert(t("dm.attachImage"), t("dm.chooseSource"), [
+      { text: t("dm.gallery"), onPress: () => void pickImageFromLibrary() },
+      { text: t("dm.camera"), onPress: () => void pickImageFromCamera() },
+      { text: t("common.cancel"), style: "cancel" },
     ]);
   };
 
@@ -383,16 +599,98 @@ export function DMThreadScreen({ route }: Props) {
     const hours = Math.floor(diff / 3600000);
     const days = Math.floor(diff / 86400000);
 
-    if (minutes < 1) return "Just now";
+    if (minutes < 1) return t("dm.justNow");
     if (minutes < 60) return `${minutes}m ago`;
     if (hours < 24) return `${hours}h ago`;
     if (days < 7) return `${days}d ago`;
     return `${date.getMonth() + 1}/${date.getDate()}`;
   };
 
+  const openSharedItemInApp = async (shared: NonNullable<ReturnType<typeof parseSharedItemMessage>>) => {
+    if (shared.itemId) {
+      const { data, error } = await supabase
+        .from("items")
+        .select(
+          "id,title,description,image_url,image_urls,brand,category,visibility,owner_id,created_at,profiles(handle,display_name,avatar_url)"
+        )
+        .eq("id", shared.itemId)
+        .maybeSingle();
+
+      if (!error && data) {
+        const row = data as {
+          id: string;
+          title: string;
+          description: string | null;
+          image_url: string | null;
+          image_urls: string[] | null;
+          brand: string | null;
+          category: string | null;
+          visibility: "public" | "unlisted" | "private";
+          owner_id: string;
+          created_at: string | null;
+          profiles:
+            | { handle: string; display_name: string | null; avatar_url: string | null }
+            | Array<{ handle: string; display_name: string | null; avatar_url: string | null }>
+            | null;
+        };
+        const ownerProfile = Array.isArray(row.profiles) ? (row.profiles[0] ?? null) : row.profiles;
+
+        const detailItem: Item = {
+          id: row.id,
+          title: row.title,
+          description: row.description,
+          image_url: row.image_url,
+          image_urls: row.image_urls,
+          brand: row.brand,
+          category: row.category,
+          visibility: row.visibility,
+          owner_id: row.owner_id,
+          created_at: row.created_at,
+          owner: {
+            handle: ownerProfile?.handle ?? "unknown",
+            display_name: ownerProfile?.display_name ?? null,
+            avatar_url: ownerProfile?.avatar_url ?? null,
+          },
+        };
+
+        navigation.navigate("FeedItemDetail", { item: detailItem });
+        return;
+      }
+    }
+
+    try {
+      await Linking.openURL(shared.url);
+    } catch {
+      Alert.alert(t("alert.loadError"), t("common.unknownError"));
+    }
+  };
+
+  const openOtherProfile = async () => {
+    if (openingProfile) return;
+    setOpeningProfile(true);
+    const { data, error } = await supabase
+      .from("profiles")
+      .select("id,handle")
+      .eq("handle", otherHandle)
+      .maybeSingle();
+
+    setOpeningProfile(false);
+    if (error || !data?.id) {
+      Alert.alert(t("alert.loadError"), error?.message ?? t("common.unknownError"));
+      return;
+    }
+    navigation.navigate("UserProfile", { ownerId: data.id, handle: data.handle });
+  };
+
   return (
     <View style={styles.container}>
-      <View style={styles.headerCard}>
+      <Pressable
+        disabled={openingProfile}
+        onPress={() => {
+          void openOtherProfile();
+        }}
+        style={styles.headerCard}
+      >
         <View style={styles.avatarWrap}>
           {otherAvatarUrl ? (
             <Image source={{ uri: otherAvatarUrl }} style={styles.avatar} />
@@ -405,21 +703,39 @@ export function DMThreadScreen({ route }: Props) {
           <Text style={styles.handle}>@{otherHandle}</Text>
         </View>
         <View style={styles.encryptedBadge}>
-          <Text style={styles.encryptedBadgeText}>Encrypted</Text>
+          <Text style={styles.encryptedBadgeText}>{t("dm.encryptedBadge")}</Text>
         </View>
-      </View>
+      </Pressable>
       {loading ? <ActivityIndicator style={styles.loader} /> : null}
 
       <FlatList
+        ref={listRef}
         data={messages}
         keyExtractor={(item) => item.id}
+        keyboardShouldPersistTaps="handled"
+        onScroll={handleMessagesScroll}
+        showsVerticalScrollIndicator={false}
+        onContentSizeChange={() => {
+          if (isNearBottomRef.current) {
+            listRef.current?.scrollToEnd({ animated: false });
+          }
+        }}
+        scrollEventThrottle={16}
         contentContainerStyle={styles.messagesContainer}
         style={styles.messagesList}
-        ListEmptyComponent={<Text style={styles.emptyText}>Start a conversation</Text>}
+        ListEmptyComponent={<Text style={styles.emptyText}>{t("dm.startConversation")}</Text>}
         renderItem={({ item }) => {
           const mine = item.sender_id === userId;
+          const sharedItem = item.content ? parseSharedItemMessage(item.content) : null;
+          const sharedPreview = sharedItem?.itemId ? sharedItemPreviews[sharedItem.itemId] : null;
           return (
-            <View style={[styles.messageBubble, mine ? styles.myBubble : styles.otherBubble]}>
+            <View
+              style={[
+                styles.messageBubble,
+                mine ? styles.myBubble : styles.otherBubble,
+                highlightedMessageId === item.id ? styles.highlightedBubble : null,
+              ]}
+            >
               {item.image_url ? (
                 <ExpoImage
                   contentFit="cover"
@@ -430,12 +746,52 @@ export function DMThreadScreen({ route }: Props) {
                   }}
                 />
               ) : null}
-              {item.content ? <Text style={[styles.messageText, mine && styles.myMessageText]}>{item.content}</Text> : null}
+              {sharedItem ? (
+                <Pressable
+                  onPress={() => {
+                    void openSharedItemInApp(sharedItem);
+                  }}
+                  style={[styles.sharedCard, mine ? styles.sharedCardMine : styles.sharedCardOther]}
+                >
+                  <Text style={[styles.sharedLabel, mine ? styles.sharedLabelMine : null]}>{t("dm.sharedItem")}</Text>
+                  <View style={styles.sharedMainRow}>
+                    {sharedPreview?.image_url ? (
+                      <Image source={{ uri: sharedPreview.image_url }} style={styles.sharedThumb} />
+                    ) : (
+                      <View style={styles.sharedThumbFallback}>
+                        <Text style={styles.sharedThumbFallbackText}>📦</Text>
+                      </View>
+                    )}
+                    <View style={styles.sharedTextWrap}>
+                      <Text numberOfLines={1} style={[styles.sharedTitle, mine ? styles.sharedTextMine : null]}>
+                        {sharedPreview?.title ?? sharedItem.title}
+                      </Text>
+                    </View>
+                  </View>
+                  {(sharedPreview?.brand || sharedPreview?.category) ? (
+                    <View style={styles.sharedMetaRow}>
+                      {sharedPreview?.brand ? (
+                        <Text style={[styles.sharedChip, mine ? styles.sharedChipMine : null]}>{sharedPreview.brand}</Text>
+                      ) : null}
+                      {sharedPreview?.category ? (
+                        <Text style={[styles.sharedChip, mine ? styles.sharedChipMine : null]}>{sharedPreview.category}</Text>
+                      ) : null}
+                    </View>
+                  ) : null}
+                </Pressable>
+              ) : item.content ? (
+                <Text style={[styles.messageText, mine && styles.myMessageText]}>{item.content}</Text>
+              ) : null}
               <Text style={[styles.timeText, mine ? styles.myTimeText : null]}>{formatTime(item.created_at)}</Text>
             </View>
           );
         }}
       />
+      {incomingBadgeCount > 0 ? (
+        <Pressable onPress={focusLatestIncomingMessage} style={styles.newMessageBadge}>
+          <Text style={styles.newMessageBadgeText}>{t("dm.newMessages", { count: incomingBadgeCount })}</Text>
+        </Pressable>
+      ) : null}
 
       {selectedImageUri ? (
         <View style={styles.selectedImageWrap}>
@@ -452,13 +808,15 @@ export function DMThreadScreen({ route }: Props) {
         </Pressable>
         <TextInput
           onChangeText={setInput}
-          placeholder="Type a message"
+          onSubmitEditing={() => void sendMessage()}
+          placeholder={t("dm.typeMessage")}
           placeholderTextColor={webUi.color.placeholder}
+          returnKeyType="send"
           style={styles.input}
           value={input}
         />
         <Pressable disabled={sending} onPress={() => void sendMessage()} style={styles.sendButton}>
-          <Text style={styles.sendLabel}>{sending ? "..." : "Send"}</Text>
+          <Text style={styles.sendLabel}>{sending ? "..." : t("feed.send")}</Text>
         </Pressable>
       </View>
     </View>
@@ -469,7 +827,7 @@ const styles = StyleSheet.create({
   container: {
     alignSelf: "center",
     flex: 1,
-    gap: 10,
+    gap: webUi.layout.pageGap,
     maxWidth: webUi.layout.pageMaxWidth,
     width: "100%",
   },
@@ -495,7 +853,7 @@ const styles = StyleSheet.create({
   avatarLabel: { color: webUi.color.textSecondary, fontSize: 14, fontWeight: "700" },
   userMeta: { flex: 1 },
   title: { color: webUi.color.text, fontSize: 15, fontWeight: "700" },
-  handle: { color: webUi.color.textMuted, fontSize: 12, marginTop: 2 },
+  handle: { color: webUi.color.textMuted, fontSize: webUi.typography.pageSubtitle, marginTop: 2 },
   encryptedBadge: {
     backgroundColor: webUi.color.successBg,
     borderRadius: 999,
@@ -526,13 +884,17 @@ const styles = StyleSheet.create({
   },
   myBubble: {
     alignSelf: "flex-end",
-    backgroundColor: webUi.color.text,
+    backgroundColor: webUi.color.primary,
   },
   otherBubble: {
     alignSelf: "flex-start",
     backgroundColor: webUi.color.surfaceMuted,
     borderColor: webUi.color.border,
     borderWidth: 1,
+  },
+  highlightedBubble: {
+    borderColor: webUi.color.primary,
+    borderWidth: 2,
   },
   messageImage: {
     borderRadius: webUi.radius.xl,
@@ -543,8 +905,22 @@ const styles = StyleSheet.create({
   messageText: { color: webUi.color.text, fontSize: 13 },
   myMessageText: { color: webUi.color.primaryText },
   timeText: { color: webUi.color.textMuted, fontSize: 10, marginTop: 4, textAlign: "right" },
-  myTimeText: { color: webUi.color.textMuted },
+  myTimeText: { color: webUi.color.primaryText },
   inputRow: { flexDirection: "row", gap: 8, paddingBottom: 6 },
+  newMessageBadge: {
+    alignItems: "center",
+    alignSelf: "center",
+    backgroundColor: webUi.color.text,
+    borderRadius: 999,
+    marginBottom: 2,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+  },
+  newMessageBadgeText: {
+    color: webUi.color.primaryText,
+    fontSize: 12,
+    fontWeight: "700",
+  },
   attachButton: {
     alignItems: "center",
     borderColor: webUi.color.border,
@@ -566,11 +942,11 @@ const styles = StyleSheet.create({
     color: webUi.color.text,
     flex: 1,
     paddingHorizontal: 12,
-    paddingVertical: 10,
+    paddingVertical: webUi.layout.controlVerticalPadding,
   },
   sendButton: {
     alignItems: "center",
-    backgroundColor: webUi.color.text,
+    backgroundColor: webUi.color.primary,
     borderRadius: webUi.radius.xl,
     justifyContent: "center",
     minWidth: 64,
@@ -601,5 +977,88 @@ const styles = StyleSheet.create({
     color: webUi.color.primaryText,
     fontSize: 10,
     fontWeight: "700",
+  },
+  sharedCard: {
+    borderRadius: webUi.radius.xl,
+    borderWidth: 1,
+    marginBottom: 2,
+    padding: 10,
+  },
+  sharedCardMine: {
+    backgroundColor: webUi.color.overlaySoft,
+    borderColor: webUi.color.overlayDot,
+  },
+  sharedCardOther: {
+    backgroundColor: webUi.color.surface,
+    borderColor: webUi.color.border,
+  },
+  sharedLabel: {
+    color: webUi.color.textMuted,
+    fontSize: 10,
+    fontWeight: "700",
+    marginBottom: 6,
+    textTransform: "uppercase",
+  },
+  sharedLabelMine: {
+    color: webUi.color.primaryText,
+  },
+  sharedMainRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 8,
+  },
+  sharedThumb: {
+    borderRadius: 8,
+    height: 50,
+    width: 50,
+  },
+  sharedThumbFallback: {
+    alignItems: "center",
+    backgroundColor: webUi.color.surfaceMuted,
+    borderRadius: 8,
+    height: 50,
+    justifyContent: "center",
+    width: 50,
+  },
+  sharedThumbFallbackText: {
+    fontSize: 20,
+  },
+  sharedTextWrap: {
+    flex: 1,
+  },
+  sharedTitle: {
+    color: webUi.color.text,
+    fontSize: 13,
+    fontWeight: "700",
+  },
+  sharedPath: {
+    color: webUi.color.textMuted,
+    fontSize: 11,
+    marginTop: 2,
+  },
+  sharedTextMine: {
+    color: webUi.color.primaryText,
+  },
+  sharedSubtextMine: {
+    color: webUi.color.primaryText,
+  },
+  sharedMetaRow: {
+    flexDirection: "row",
+    gap: 6,
+    marginTop: 8,
+  },
+  sharedChip: {
+    backgroundColor: webUi.color.surfaceMuted,
+    borderRadius: 999,
+    color: webUi.color.textSecondary,
+    fontSize: 10,
+    fontWeight: "600",
+    overflow: "hidden",
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+  },
+  sharedChipMine: {
+    backgroundColor: webUi.color.overlaySoft,
+    color: webUi.color.primaryText,
   },
 });

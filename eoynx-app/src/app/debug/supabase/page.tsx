@@ -1,4 +1,5 @@
 import { NOINDEX } from "@/lib/robots";
+import { notFound } from "next/navigation";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 export const metadata = {
@@ -7,6 +8,10 @@ export const metadata = {
 };
 
 export default async function SupabaseDebugPage() {
+  if (process.env.NODE_ENV === "production") {
+    notFound();
+  }
+
   const supabase = await createSupabaseServerClient();
   const { data, error } = await supabase.auth.getSession();
 

@@ -3,6 +3,7 @@ import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import type { Session } from "@supabase/supabase-js";
 import { Dimensions } from "react-native";
+import type { NativeStackNavigationOptions } from "@react-navigation/native-stack";
 import Svg, { Path } from "react-native-svg";
 import { AddItemScreen } from "../screens/AddItemScreen";
 import { AuthScreen } from "../screens/AuthScreen";
@@ -46,6 +47,29 @@ const navTheme = {
   colors: {
     ...DefaultTheme.colors,
     background: webUi.color.bg,
+    border: webUi.color.border,
+    card: webUi.color.surface,
+    notification: webUi.color.primary,
+    primary: webUi.color.primary,
+    text: webUi.color.text,
+  },
+};
+
+const sharedStackOptions: NativeStackNavigationOptions = {
+  contentStyle: {
+    backgroundColor: webUi.color.bg,
+    paddingHorizontal: HORIZONTAL_GUTTER,
+    paddingTop: 12,
+  },
+  headerShadowVisible: false,
+  headerStyle: {
+    backgroundColor: webUi.color.surface,
+  },
+  headerTintColor: webUi.color.text,
+  headerTitleStyle: {
+    color: webUi.color.text,
+    fontSize: 16,
+    fontWeight: "700",
   },
 };
 
@@ -136,15 +160,7 @@ function TabIcon({ color, focused, name }: TabIconProps) {
 
 function FeedStackNavigator() {
   return (
-    <FeedStack.Navigator
-      screenOptions={{
-        contentStyle: {
-          backgroundColor: webUi.color.bg,
-          paddingHorizontal: HORIZONTAL_GUTTER,
-          paddingTop: 12,
-        },
-      }}
-    >
+    <FeedStack.Navigator screenOptions={sharedStackOptions}>
       <FeedStack.Screen
         component={FeedScreen}
         name="FeedList"
@@ -226,22 +242,13 @@ function MainTabNavigator({ session }: { session: Session }) {
       <MainTabs.Screen name="Profile" options={{ tabBarLabel: t("tab.profile"), title: t("tab.profile") }}>
         {() => <ProfileStackNavigator session={session} />}
       </MainTabs.Screen>
-      <MainTabs.Screen name="Settings" component={SettingsScreen} options={{ tabBarLabel: t("tab.settings"), title: t("tab.settings") }} />
     </MainTabs.Navigator>
   );
 }
 
 function SearchStackNavigator() {
   return (
-    <SearchStack.Navigator
-      screenOptions={{
-        contentStyle: {
-          backgroundColor: webUi.color.bg,
-          paddingHorizontal: HORIZONTAL_GUTTER,
-          paddingTop: 12,
-        },
-      }}
-    >
+    <SearchStack.Navigator screenOptions={sharedStackOptions}>
       <SearchStack.Screen
         component={SearchScreen}
         name="SearchHome"
@@ -258,15 +265,7 @@ function SearchStackNavigator() {
 
 function AddStackNavigator() {
   return (
-    <AddStack.Navigator
-      screenOptions={{
-        contentStyle: {
-          backgroundColor: webUi.color.bg,
-          paddingHorizontal: HORIZONTAL_GUTTER,
-          paddingTop: 12,
-        },
-      }}
-    >
+    <AddStack.Navigator screenOptions={sharedStackOptions}>
       <AddStack.Screen
         component={AddItemScreen}
         name="AddItemHome"
@@ -283,15 +282,7 @@ function AddStackNavigator() {
 
 function ProfileStackNavigator({ session }: { session: Session }) {
   return (
-    <ProfileStack.Navigator
-      screenOptions={{
-        contentStyle: {
-          backgroundColor: webUi.color.bg,
-          paddingHorizontal: HORIZONTAL_GUTTER,
-          paddingTop: 12,
-        },
-      }}
-    >
+    <ProfileStack.Navigator screenOptions={sharedStackOptions}>
       <ProfileStack.Screen
         name="ProfileOverview"
         options={{ headerShown: false }}
@@ -308,6 +299,11 @@ function ProfileStackNavigator({ session }: { session: Session }) {
         component={FeedItemDetailScreen}
         options={{ headerTitle: "Item Detail" }}
       />
+      <ProfileStack.Screen
+        name="SettingsHome"
+        component={SettingsScreen}
+        options={{ headerTitle: "Settings" }}
+      />
     </ProfileStack.Navigator>
   );
 }
@@ -318,11 +314,7 @@ export function RootNavigator({ session, navigationRef }: RootNavigatorProps) {
       <RootStack.Navigator
         screenOptions={{
           headerShown: false,
-          contentStyle: {
-            backgroundColor: webUi.color.bg,
-            paddingHorizontal: HORIZONTAL_GUTTER,
-            paddingTop: 12,
-          },
+          ...sharedStackOptions,
         }}
       >
         {session ? (

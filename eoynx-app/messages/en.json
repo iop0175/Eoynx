@@ -9,19 +9,19 @@
   },
   "home": {
     "chips": {
-      "seoFirst": "SEO-first",
-      "publicProfiles": "Public profiles",
-      "shareCards": "9:16 share cards",
-      "verifiedValue": "Verified value"
+      "seoFirst": "Easy to start",
+      "publicProfiles": "Your own showroom",
+      "shareCards": "Share instantly",
+      "verifiedValue": "Trusted details"
     },
     "hero": {
-      "title1": "Show your collection.",
-      "title2": "Let the internet find it.",
-      "description": "EOYNX is a public-first luxury collection community. Profiles and items are indexable. Unlisted stays link-only. Private stays private."
+      "title1": "Show your collection",
+      "title2": "the way it deserves.",
+      "description": "EOYNX is the easiest way to record and share your collection. Add photos, tell the story, and control visibility your way."
     },
     "cta": {
-      "viewProfile": "View a profile",
-      "viewItem": "View an item"
+      "viewProfile": "Explore a showroom",
+      "viewItem": "View a featured item"
     },
     "stats": {
       "categories": "Categories",
@@ -36,6 +36,25 @@
     "debug": {
       "title": "Supabase connection",
       "description": "Debug page (noindex). Confirm env wiring."
+    },
+    "seo": {
+      "sectionTitle": "A collection experience anyone can use",
+      "sectionDescription": "From organizing to sharing, everything is designed to feel simple for you and clear for your audience.",
+      "point1Title": "Clean, photo-first presentation",
+      "point1Body": "Show multiple images in a smooth slider with key details easy to scan.",
+      "point2Title": "Privacy controls that make sense",
+      "point2Body": "Choose Public, Link-only, or Private for each item and stay in control.",
+      "point3Title": "Sharing that looks great anywhere",
+      "point3Body": "Your links look polished in chat and social with rich previews and clear summaries.",
+      "crawlTitle": "Jump right in",
+      "crawlSearch": "Search people and items",
+      "crawlProfile": "Showroom example",
+      "crawlItem": "Item example",
+      "popularSearches": "Browse by category",
+      "crawlLuxury": "Luxury category",
+      "crawlAccessories": "Accessories category",
+      "crawlCars": "Cars category",
+      "crawlRealEstate": "Real estate category"
     }
   },
   "profile": {
@@ -80,7 +99,11 @@
   },
   "auth": {
     "title": "Sign in",
-    "subtitle": "Google + email/password."
+    "subtitle": "Google + email/password.",
+    "privacyConsentLabel": "I agree to the collection and use of personal information.",
+    "privacyConsentView": "View consent form",
+    "privacyConsentRequiredBadge": "(Required)",
+    "privacyConsentRequired": "Privacy consent is required."
   },
   "settings": {
     "title": "Settings",
@@ -95,7 +118,10 @@
     "dmSettings": "DM settings (followers-only toggle)",
     "privacy": "Privacy + blocks",
     "signIn": "Sign in",
-    "signOut": "Sign out"
+    "signOut": "Sign out",
+    "deleteAccount": "Delete account",
+    "deleteAccountConfirmLabel": "Type DELETE below to confirm account deletion",
+    "deleteAccountHint": "Deleting your account removes related data and allows re-signup with the same email."
   },
   "notifications": {
     "title": "Notifications",
@@ -122,6 +148,10 @@
       "dm": "{actor} sent you a message",
       "dmRequest": "{actor} sent you a message request"
     }
+  },
+  "comments": {
+    "deletedByAuthor": "This message was deleted",
+    "deletedByOwner": "This message was removed by the post owner"
   },
   "dm": {
     "title": "Messages",

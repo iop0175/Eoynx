@@ -17,6 +17,8 @@ interface ItemPageProps {
   params: Promise<{ id: string }>;
 }
 
+const BASE_URL = (process.env.NEXT_PUBLIC_SITE_URL || "https://eoynx.com").trim();
+
 
 // Dynamic metadata (SEO)
 export async function generateMetadata({ params }: ItemPageProps): Promise<Metadata> {
@@ -35,6 +37,9 @@ export async function generateMetadata({ params }: ItemPageProps): Promise<Metad
   return {
     title,
     description,
+    alternates: {
+      canonical: `/i/${id}`,
+    },
     robots: {
       index: !(isUnlisted || isPrivateOrMissing),
       follow: !(isUnlisted || isPrivateOrMissing),
@@ -43,13 +48,22 @@ export async function generateMetadata({ params }: ItemPageProps): Promise<Metad
       title,
       description,
       type: "article",
-      url: `https://eoynx.com/i/${id}`,
+      url: `${BASE_URL}/i/${id}`,
       siteName: "EOYNX",
+      images: [
+        {
+          url: `${BASE_URL}/i/${id}/opengraph-image`,
+          width: 1200,
+          height: 630,
+          alt: title,
+        },
+      ],
     },
     twitter: {
       card: "summary_large_image",
       title,
       description,
+      images: [`${BASE_URL}/i/${id}/twitter-image`],
     },
   };
 }

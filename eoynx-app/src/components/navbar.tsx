@@ -17,6 +17,7 @@ type NavbarProps = {
 export function Navbar({ user, unreadNotifications = 0 }: NavbarProps) {
   const pathname = usePathname();
   const [mobileMenuOpen, setMobileMenuOpen] = React.useState(false);
+  const [logoError, setLogoError] = React.useState(false);
 
   // Don't show navbar on auth pages
   if (pathname?.startsWith("/auth")) {
@@ -34,8 +35,25 @@ export function Navbar({ user, unreadNotifications = 0 }: NavbarProps) {
     <nav className="sticky top-0 z-50 border-b border-neutral-200 bg-white dark:border-neutral-800 dark:bg-black">
       <div className="mx-auto flex h-14 max-w-3xl items-center justify-between px-4">
         {/* Logo */}
-        <Link href="/" className="text-lg font-bold tracking-tight">
-          EOYNX
+        <Link href="/" className="flex items-center">
+          {logoError ? (
+            <span className="text-lg font-bold tracking-tight">EOYNX</span>
+          ) : (
+            <>
+              <img
+                src="/logo-mark.png"
+                alt="EOYNX"
+                className="h-8 w-auto dark:hidden"
+                onError={() => setLogoError(true)}
+              />
+              <img
+                src="/logo-mark-white.png"
+                alt="EOYNX"
+                className="hidden h-8 w-auto dark:block"
+                onError={() => setLogoError(true)}
+              />
+            </>
+          )}
         </Link>
 
         {/* Desktop Navigation */}

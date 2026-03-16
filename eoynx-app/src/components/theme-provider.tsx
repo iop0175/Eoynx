@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
+import Image from "next/image";
 import { usePathname } from "next/navigation";
 import { signOut } from "@/app/actions/auth";
 
@@ -60,15 +61,6 @@ function IconDM(props: React.SVGProps<SVGSVGElement>) {
   );
 }
 
-function IconSettings(props: React.SVGProps<SVGSVGElement>) {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" {...props}>
-      <path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7z" />
-      <path d="M19.4 15a7.8 7.8 0 0 0 .1-1l2-1.5-2-3.5-2.4.7a7.6 7.6 0 0 0-1.7-1L15 6h-6l-.4 2.7a7.6 7.6 0 0 0-1.7 1L4.5 9.9l-2 3.5 2 1.5a7.8 7.8 0 0 0 .1 1l-2 1.5 2 3.5 2.4-.7a7.6 7.6 0 0 0 1.7 1L9 18h6l.4-2.7a7.6 7.6 0 0 0 1.7-1l2.4.7 2-3.5-2-1.5z" />
-    </svg>
-  );
-}
-
 function IconUser(props: React.SVGProps<SVGSVGElement>) {
   return (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" {...props}>
@@ -121,8 +113,23 @@ export function ThemeProvider({ children, user }: { children: React.ReactNode; u
     <div>
       <div className="fixed left-0 right-0 top-0 z-50 border-b border-neutral-200 bg-white/80 backdrop-blur dark:border-neutral-800 dark:bg-neutral-950/80">
         <div className="mx-auto flex max-w-3xl items-center justify-between px-4 py-3">
-          <Link href="/" className="font-semibold tracking-tight">
-            EOYNX
+          <Link href="/" className="inline-flex items-center">
+            <Image
+              src="/logo-mark.png"
+              alt="EOYNX"
+              width={28}
+              height={28}
+              priority
+              className="h-7 w-7 rounded-md object-contain dark:hidden"
+            />
+            <Image
+              src="/logo-mark-white.png"
+              alt="EOYNX"
+              width={28}
+              height={28}
+              priority
+              className="hidden h-7 w-7 rounded-md object-contain dark:block"
+            />
           </Link>
 
           <div className="flex items-center gap-1 text-sm">
@@ -132,7 +139,6 @@ export function ThemeProvider({ children, user }: { children: React.ReactNode; u
                 { href: "/search", label: "Search", Icon: IconSearch },
                 { href: "/add", label: "Add", Icon: IconPlus },
                 { href: "/dm", label: "DM", Icon: IconDM },
-                { href: "/settings", label: "Settings", Icon: IconSettings },
               ] as const
             ).map(({ href, label, Icon }) => {
               const active = pathname === href || pathname?.startsWith(href + "/");

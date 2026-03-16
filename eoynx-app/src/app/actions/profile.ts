@@ -216,7 +216,8 @@ export async function updateDMOpenSetting(formData: FormData): Promise<void> {
   }
 
   const value = String(formData.get("dm_open"));
-  const dmOpen = value === "true";
+  const mode = String(formData.get("dm_mode") ?? "").trim();
+  const dmOpen = mode === "request" ? false : value === "true";
 
   await supabase
     .from("profiles")
@@ -224,6 +225,7 @@ export async function updateDMOpenSetting(formData: FormData): Promise<void> {
     .eq("id", user.id);
 
   revalidatePath("/settings");
+  revalidatePath("/dm");
 }
 
 // Profile item sort types

@@ -1,0 +1,2 @@
+-- Placeholder migration to match remote migration history version 20260322100000.
+-- This file intentionally contains no statements.

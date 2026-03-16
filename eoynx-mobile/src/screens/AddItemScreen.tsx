@@ -1,5 +1,15 @@
 import { useEffect, useMemo, useState } from "react";
-import { Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import {
+  Alert,
+  KeyboardAvoidingView,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from "react-native";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import * as ImagePicker from "expo-image-picker";
 import * as FileSystemLegacy from "expo-file-system/legacy";
@@ -484,8 +494,17 @@ export function AddItemScreen({ navigation, route }: Props) {
   const subImages = images.filter((img) => img.id !== primaryImage?.id);
 
   return (
-    <ScrollView contentContainerStyle={styles.container}>
-      <View style={styles.header}>
+    <KeyboardAvoidingView
+      behavior={Platform.OS === "ios" ? "padding" : "height"}
+      keyboardVerticalOffset={Platform.OS === "ios" ? 84 : 24}
+      style={styles.page}
+    >
+      <ScrollView
+        contentContainerStyle={styles.container}
+        keyboardDismissMode="on-drag"
+        keyboardShouldPersistTaps="handled"
+      >
+        <View style={styles.header}>
         <View>
           <Text style={styles.title}>{isEditMode ? "Edit item" : "Add item"}</Text>
           <Text style={styles.subtitle}>
@@ -651,23 +670,28 @@ export function AddItemScreen({ navigation, route }: Props) {
           {loading ? "Uploading images..." : deleting ? "Deleting item..." : isEditMode ? "Save changes" : "Publish"}
         </Text>
       </Pressable>
-      {isEditMode ? (
-        <Pressable
-          disabled={loading || deleting}
-          onPress={handleDeleteItem}
-          style={[styles.deleteButton, (loading || deleting) && styles.publishButtonDisabled]}
-        >
-          <Text style={styles.deleteLabel}>Delete item</Text>
-        </Pressable>
-      ) : null}
-    </ScrollView>
+        {isEditMode ? (
+          <Pressable
+            disabled={loading || deleting}
+            onPress={handleDeleteItem}
+            style={[styles.deleteButton, (loading || deleting) && styles.publishButtonDisabled]}
+          >
+            <Text style={styles.deleteLabel}>Delete item</Text>
+          </Pressable>
+        ) : null}
+      </ScrollView>
+    </KeyboardAvoidingView>
   );
 }
 
 const styles = StyleSheet.create({
+  page: {
+    flex: 1,
+  },
   container: {
     alignSelf: "center",
-    gap: 12,
+    flexGrow: 1,
+    gap: webUi.layout.pageGap,
     maxWidth: webUi.layout.pageMaxWidth,
     paddingBottom: 24,
     width: "100%",
@@ -678,12 +702,12 @@ const styles = StyleSheet.create({
   },
   title: {
     color: webUi.color.text,
-    fontSize: 24,
+    fontSize: webUi.typography.pageTitle,
     fontWeight: "700",
   },
   subtitle: {
     color: webUi.color.textMuted,
-    fontSize: 12,
+    fontSize: webUi.typography.pageSubtitle,
     marginTop: 4,
   },
   card: {
@@ -767,7 +791,7 @@ const styles = StyleSheet.create({
     borderRadius: webUi.radius.xl,
     borderWidth: 1,
     flex: 1,
-    paddingVertical: 10,
+    paddingVertical: webUi.layout.controlVerticalPadding,
   },
   imageActionLabel: {
     color: webUi.color.text,
@@ -837,7 +861,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     color: webUi.color.text,
     paddingHorizontal: 12,
-    paddingVertical: 10,
+    paddingVertical: webUi.layout.controlVerticalPadding,
   },
   textArea: {
     minHeight: 88,
@@ -874,7 +898,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     backgroundColor: webUi.color.primary,
     borderRadius: webUi.radius.xl,
-    paddingVertical: 12,
+    paddingVertical: webUi.layout.controlVerticalPadding + 2,
   },
   publishButtonDisabled: {
     opacity: 0.5,
@@ -888,7 +912,7 @@ const styles = StyleSheet.create({
     borderColor: webUi.color.danger,
     borderRadius: webUi.radius.xl,
     borderWidth: 1,
-    paddingVertical: 12,
+    paddingVertical: webUi.layout.controlVerticalPadding + 2,
   },
   deleteLabel: {
     color: webUi.color.danger,

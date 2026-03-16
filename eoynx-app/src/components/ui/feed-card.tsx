@@ -5,7 +5,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { ChevronLeft, ChevronRight, Heart, MessageCircle, Share2, Bookmark, ChevronDown, ChevronUp, Send, Trash2, Flag, MoreHorizontal } from "lucide-react";
 import { likeItem, unlikeItem, bookmarkItem, unbookmarkItem } from "@/app/actions/social";
-import { addComment, deleteComment, likeComment, unlikeComment } from "@/app/actions/comments";
+import { addComment, deleteComment, likeComment, unlikeComment, updateComment } from "@/app/actions/comments";
 import { ReportModal } from "@/components/ui/report-modal";
 import { ShareModal } from "@/components/ui/share-modal";
 import { Avatar } from "@/components/ui/optimized-image";
@@ -14,6 +14,7 @@ export type FeedCardComment = {
   id: string;
   content: string;
   created_at: string;
+  parent_id?: string | null;
   user: {
     id: string;
     handle: string;
@@ -70,6 +71,10 @@ export function FeedCard({
   const [comments, setComments] = React.useState<FeedCardComment[]>(initialComments);
   const [commentCount, setCommentCount] = React.useState(initialCommentCount);
   const [newComment, setNewComment] = React.useState("");
+  const [replyTargetId, setReplyTargetId] = React.useState<string | null>(null);
+  const [replyContent, setReplyContent] = React.useState("");
+  const [editingCommentId, setEditingCommentId] = React.useState<string | null>(null);
+  const [editContent, setEditContent] = React.useState("");
   const [loadingComment, setLoadingComment] = React.useState(false);
   const [loadingCommentLike, setLoadingCommentLike] = React.useState<string | null>(null);
   
@@ -167,26 +172,25 @@ export function FeedCard({
     setShowShareModal(true);
   };
 
-  const handleAddComment = async () => {
+  const handleAddComment = async (parentId?: string) => {
     if (!isLoggedIn) {
       window.location.href = "/auth";
       return;
     }
 
-    const content = newComment.trim();
+    const content = (parentId ? replyContent : newComment).trim();
     if (!content) return;
 
     setLoadingComment(true);
     try {
-      const result = await addComment(item.id, content);
+      const result = await addComment(item.id, content, parentId);
       if (result.success && result.comment) {
-        // Optimistically add the comment to the list
-        // In a real app, we'd need to fetch user info here
         setComments((prev) => [
           {
             id: result.comment.id,
             content: result.comment.content,
             created_at: result.comment.created_at,
+            parent_id: result.comment.parent_id ?? null,
             user: {
               id: currentUserId ?? "",
               handle: "me", // This will be replaced by actual display
@@ -197,7 +201,12 @@ export function FeedCard({
           ...prev,
         ]);
         setCommentCount((prev) => prev + 1);
-        setNewComment("");
+        if (parentId) {
+          setReplyTargetId(null);
+          setReplyContent("");
+        } else {
+          setNewComment("");
+        }
       }
     } catch (error) {
       console.error("Failed to add comment:", error);
@@ -209,10 +218,98 @@ export function FeedCard({
   const handleDeleteComment = async (commentId: string) => {
     const result = await deleteComment(commentId, item.id);
     if (result.success) {
-      setComments((prev) => prev.filter((c) => c.id !== commentId));
-      setCommentCount((prev) => prev - 1);
+      if (result.mode === "hard") {
+        setComments((prev) => {
+          const childrenByParent: Record<string, string[]> = {};
+          for (const comment of prev) {
+            if (!comment.parent_id) continue;
+            if (!childrenByParent[comment.parent_id]) {
+              childrenByParent[comment.parent_id] = [];
+            }
+            childrenByParent[comment.parent_id].push(comment.id);
+          }
+
+          const toRemove = new Set<string>([commentId]);
+          const queue = [commentId];
+          while (queue.length > 0) {
+            const current = queue.shift();
+            if (!current) continue;
+            const children = childrenByParent[current] ?? [];
+            for (const child of children) {
+              if (toRemove.has(child)) continue;
+              toRemove.add(child);
+              queue.push(child);
+            }
+          }
+
+          setCommentCount((count) => Math.max(0, count - toRemove.size));
+          return prev.filter((c) => !toRemove.has(c.id));
+        });
+        return;
+      }
+      if (result.mode === "soft_owner") {
+        setComments((prev) =>
+          prev.map((c) =>
+            c.id === commentId ? { ...c, content: "게시자에 의해 삭제됀 메시지 입니다" } : c
+          )
+        );
+        return;
+      }
+      setComments((prev) =>
+        prev.map((c) =>
+          c.id === commentId ? { ...c, content: "삭제된 메시지 입니다" } : c
+        )
+      );
     }
   };
+
+  const handleStartEdit = (comment: FeedCardComment) => {
+    setEditingCommentId(comment.id);
+    setEditContent(comment.content);
+  };
+
+  const handleSaveEdit = async (commentId: string) => {
+    const content = editContent.trim();
+    if (!content) return;
+
+    const result = await updateComment(commentId, content);
+    if (result.success) {
+      setComments((prev) => prev.map((c) => (c.id === commentId ? { ...c, content } : c)));
+      setEditingCommentId(null);
+      setEditContent("");
+    }
+  };
+
+  const topLevelComments = React.useMemo(
+    () => comments.filter((comment) => !comment.parent_id),
+    [comments]
+  );
+
+  const isDeletedPreviewComment = React.useCallback((content: string) => {
+    return (
+      content === "삭제된 메시지 입니다" ||
+      content === "게시자에 의해 삭제됀 메시지 입니다" ||
+      content === "Deleted message" ||
+      content === "Deleted by post owner"
+    );
+  }, []);
+
+  const previewTopLevelComments = React.useMemo(
+    () => topLevelComments.filter((comment) => !isDeletedPreviewComment(comment.content)),
+    [topLevelComments, isDeletedPreviewComment]
+  );
+
+  const repliesByParent = React.useMemo(() => {
+    const map: Record<string, FeedCardComment[]> = {};
+    for (const comment of comments) {
+      if (!comment.parent_id) continue;
+      if (!map[comment.parent_id]) {
+        map[comment.parent_id] = [];
+      }
+      map[comment.parent_id].push(comment);
+    }
+    return map;
+  }, [comments]);
 
   const handleCommentLikeToggle = async (commentId: string, isCurrentlyLiked: boolean) => {
     if (!isLoggedIn) {
@@ -329,8 +426,7 @@ export function FeedCard({
               src={images[currentIndex]}
               alt={item.title}
               fill
-              priority={currentIndex === 0}
-              loading={currentIndex === 0 ? "eager" : "lazy"}
+              loading="lazy"
               className="object-cover"
               sizes="(max-width: 768px) 100vw, 768px"
             />
@@ -427,9 +523,9 @@ export function FeedCard({
         )}
 
         {/* Top 3 comments preview (sorted by likes) */}
-        {!isExpanded && comments.length > 0 && (
+        {!isExpanded && previewTopLevelComments.length > 0 && (
           <div className="mt-3 space-y-2 border-t border-neutral-100 pt-3 dark:border-neutral-800">
-            {[...comments]
+            {[...previewTopLevelComments]
               .sort((a, b) => (b.likeCount ?? 0) - (a.likeCount ?? 0))
               .slice(0, 3)
               .map((comment) => (
@@ -451,12 +547,12 @@ export function FeedCard({
                   )}
                 </div>
               ))}
-            {comments.length > 3 && (
+            {previewTopLevelComments.length > 3 && (
               <button
                 onClick={() => setIsExpanded(true)}
                 className="text-xs text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300"
               >
-                댓글 {comments.length - 3}개 더 보기...
+                댓글 {previewTopLevelComments.length - 3}개 더 보기...
               </button>
             )}
           </div>
@@ -538,7 +634,9 @@ export function FeedCard({
                   className="flex-1 rounded-lg border border-neutral-200 px-3 py-2 text-xs outline-none placeholder:text-neutral-400 focus:border-neutral-300 disabled:opacity-50 dark:border-neutral-700 dark:bg-neutral-900 dark:focus:border-neutral-600"
                 />
                 <button
-                  onClick={handleAddComment}
+                  onClick={() => {
+                    void handleAddComment();
+                  }}
                   disabled={!newComment.trim() || loadingComment}
                   className="rounded-lg bg-neutral-900 px-3 py-2 text-white transition-colors hover:bg-neutral-800 disabled:opacity-50 dark:bg-white dark:text-black dark:hover:bg-neutral-200"
                 >
@@ -548,68 +646,139 @@ export function FeedCard({
             )}
 
             {/* Comment list */}
-            {comments.length > 0 ? (
-              <div className="space-y-3 max-h-60 overflow-y-auto">
-                {comments.map((comment) => (
-                  <div key={comment.id} className="flex gap-2">
-                    <Link
-                      href={`/u/${comment.user.handle}`}
-                    >
-                      <Avatar
-                        src={comment.user.avatar_url}
-                        alt={comment.user.display_name ?? comment.user.handle}
-                        size="xs"
-                        fallbackInitial={(comment.user.display_name ?? comment.user.handle).charAt(0).toUpperCase()}
-                      />
-                    </Link>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2">
-                        <Link
-                          href={`/u/${comment.user.handle}`}
-                          className="text-xs font-medium hover:underline"
-                        >
-                          {comment.user.display_name ?? comment.user.handle}
-                        </Link>
-                        <span className="text-[10px] text-neutral-400">
-                          {formatTime(comment.created_at)}
-                        </span>
-                        {(currentUserId === comment.user.id || currentUserId === item.owner_id) ? (
-                          <button
-                            onClick={() => handleDeleteComment(comment.id)}
-                            className="ml-auto text-neutral-400 hover:text-red-500"
-                          >
-                            <Trash2 className="h-3 w-3" />
-                          </button>
-                        ) : currentUserId && currentUserId !== comment.user.id && (
-                          <button
-                            onClick={() => {
-                              setReportingCommentId(comment.id);
-                              setShowCommentReportModal(true);
-                            }}
-                            className="ml-auto text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300"
-                            title="신고하기"
-                          >
-                            <Flag className="h-3 w-3" />
-                          </button>
-                        )}
+            {topLevelComments.length > 0 ? (
+              <div className="space-y-2.5 max-h-60 overflow-y-auto pr-1">
+                {topLevelComments.map((comment) => (
+                  <div key={comment.id} className="rounded-xl border border-neutral-200 bg-neutral-50 p-3 dark:border-neutral-800 dark:bg-neutral-900">
+                    <div className="flex items-center justify-between gap-2">
+                      <Link href={`/u/${comment.user.handle}`} className="text-xs font-semibold hover:underline">
+                        @{comment.user.handle}
+                      </Link>
+                      <span className="text-[10px] text-neutral-400">{formatTime(comment.created_at)}</span>
+                    </div>
+
+                    {editingCommentId === comment.id ? (
+                      <div className="mt-1.5 space-y-1">
+                        <textarea
+                          value={editContent}
+                          onChange={(e) => setEditContent(e.target.value)}
+                          className="w-full resize-none rounded border border-neutral-300 bg-white px-2 py-1 text-xs dark:border-neutral-700 dark:bg-neutral-950"
+                          rows={2}
+                        />
+                        <div className="flex justify-end gap-2 text-[10px]">
+                          <button onClick={() => setEditingCommentId(null)} className="text-neutral-400 hover:text-neutral-600">Cancel</button>
+                          <button onClick={() => handleSaveEdit(comment.id)} className="text-blue-500 hover:text-blue-400">Save</button>
+                        </div>
                       </div>
-                      <p className="mt-0.5 text-xs text-neutral-600 dark:text-neutral-400">
-                        {comment.content}
-                      </p>
-                      {/* Comment like button */}
+                    ) : (
+                      <p className="mt-1 text-sm text-neutral-800 dark:text-neutral-200">{comment.content}</p>
+                    )}
+
+                    <div className="mt-2 flex items-center gap-3 text-[11px]">
                       <button
                         onClick={() => handleCommentLikeToggle(comment.id, comment.isLiked ?? false)}
                         disabled={loadingCommentLike === comment.id}
-                        className={`mt-1 flex items-center gap-1 text-[10px] transition-colors disabled:opacity-50 ${
-                          comment.isLiked
-                            ? "text-red-500"
-                            : "text-neutral-400 hover:text-red-500"
-                        }`}
+                        className={`inline-flex items-center gap-1 ${comment.isLiked ? "text-red-500" : "text-neutral-500 hover:text-red-500"}`}
                       >
                         <Heart className={`h-3 w-3 ${comment.isLiked ? "fill-current" : ""}`} />
-                        <span>{(comment.likeCount ?? 0) > 0 ? comment.likeCount : ""}</span>
+                        <span>{comment.likeCount ?? 0}</span>
                       </button>
+                      {isLoggedIn && (
+                        <button
+                          onClick={() => {
+                            setReplyTargetId(replyTargetId === comment.id ? null : comment.id);
+                            setReplyContent("");
+                          }}
+                          className="text-neutral-500 hover:text-neutral-800 dark:text-neutral-400 dark:hover:text-neutral-200"
+                        >
+                          Reply
+                        </button>
+                      )}
+                      {currentUserId === comment.user.id && (
+                        <button onClick={() => handleStartEdit(comment)} className="text-neutral-500 hover:text-neutral-800 dark:text-neutral-400 dark:hover:text-neutral-200">Edit</button>
+                      )}
+                      {(currentUserId === comment.user.id || currentUserId === item.owner_id) && (
+                        <button onClick={() => handleDeleteComment(comment.id)} className="text-red-500 hover:text-red-400">Delete</button>
+                      )}
+                      {currentUserId && currentUserId !== comment.user.id && (
+                        <button
+                          onClick={() => {
+                            setReportingCommentId(comment.id);
+                            setShowCommentReportModal(true);
+                          }}
+                          className="text-neutral-500 hover:text-neutral-800 dark:text-neutral-400 dark:hover:text-neutral-200"
+                        >
+                          Report
+                        </button>
+                      )}
                     </div>
+
+                    {replyTargetId === comment.id && (
+                      <div className="mt-2 space-y-1 rounded border border-neutral-300 bg-white p-2 dark:border-neutral-700 dark:bg-neutral-950">
+                        <textarea
+                          value={replyContent}
+                          onChange={(e) => setReplyContent(e.target.value)}
+                          className="w-full resize-none rounded border border-neutral-300 bg-white px-2 py-1 text-xs dark:border-neutral-700 dark:bg-black"
+                          rows={2}
+                          placeholder="답글 작성..."
+                        />
+                        <div className="flex justify-end gap-2 text-[10px]">
+                          <button onClick={() => setReplyTargetId(null)} className="text-neutral-400 hover:text-neutral-600">Cancel</button>
+                          <button onClick={() => handleAddComment(comment.id)} className="text-blue-500 hover:text-blue-400">Reply</button>
+                        </div>
+                      </div>
+                    )}
+
+                    {(repliesByParent[comment.id] ?? []).length > 0 && (
+                      <div className="mt-2 space-y-2">
+                        {(repliesByParent[comment.id] ?? []).map((reply) => (
+                          <div key={reply.id} className="rounded-lg border border-neutral-200 bg-neutral-100 p-2 dark:border-neutral-800 dark:bg-black/50">
+                            <div className="mb-1 flex items-center gap-1 text-[10px] text-neutral-500">
+                              <span>↳</span>
+                              <Link href={`/u/${reply.user.handle}`} className="font-semibold hover:underline">@{reply.user.handle}</Link>
+                              <span className="ml-auto">{formatTime(reply.created_at)}</span>
+                            </div>
+
+                            {editingCommentId === reply.id ? (
+                              <div className="space-y-1">
+                                <textarea
+                                  value={editContent}
+                                  onChange={(e) => setEditContent(e.target.value)}
+                                  className="w-full resize-none rounded border border-neutral-300 bg-white px-2 py-1 text-xs dark:border-neutral-700 dark:bg-neutral-950"
+                                  rows={2}
+                                />
+                                <div className="flex justify-end gap-2 text-[10px]">
+                                  <button onClick={() => setEditingCommentId(null)} className="text-neutral-400 hover:text-neutral-600">Cancel</button>
+                                  <button onClick={() => handleSaveEdit(reply.id)} className="text-blue-500 hover:text-blue-400">Save</button>
+                                </div>
+                              </div>
+                            ) : (
+                              <p className="text-xs text-neutral-700 dark:text-neutral-300">{reply.content}</p>
+                            )}
+
+                            <div className="mt-1.5 flex items-center gap-3 text-[10px]">
+                              {currentUserId === reply.user.id && (
+                                <button onClick={() => handleStartEdit(reply)} className="text-neutral-500 hover:text-neutral-800 dark:text-neutral-400 dark:hover:text-neutral-200">Edit</button>
+                              )}
+                              {(currentUserId === reply.user.id || currentUserId === item.owner_id) && (
+                                <button onClick={() => handleDeleteComment(reply.id)} className="text-red-500 hover:text-red-400">Delete</button>
+                              )}
+                              {currentUserId && currentUserId !== reply.user.id && (
+                                <button
+                                  onClick={() => {
+                                    setReportingCommentId(reply.id);
+                                    setShowCommentReportModal(true);
+                                  }}
+                                  className="text-neutral-500 hover:text-neutral-800 dark:text-neutral-400 dark:hover:text-neutral-200"
+                                >
+                                  Report
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>

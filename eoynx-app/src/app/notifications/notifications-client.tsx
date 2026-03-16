@@ -123,6 +123,12 @@ export function NotificationsClient({ initialNotifications, currentUserId }: Not
       case "like":
         return t("types.like", { actor: actorName, item: itemTitle });
       case "comment":
+        if (notification.preview === "comment_like" || notification.preview === "liked your comment") {
+          return locale === "ko" ? `${actorName}님이 회원님의 댓글을 좋아합니다` : `${actorName} liked your comment`;
+        }
+        if (notification.preview === "reply_like" || notification.preview === "liked your reply") {
+          return locale === "ko" ? `${actorName}님이 회원님의 답글을 좋아합니다` : `${actorName} liked your reply`;
+        }
         return t("types.comment", { actor: actorName, item: itemTitle });
       case "dm":
         return t("types.dm", { actor: actorName });
@@ -246,7 +252,11 @@ export function NotificationsClient({ initialNotifications, currentUserId }: Not
                     <p className="text-sm">
                       {getNotificationText(notification)}
                     </p>
-                    {notification.preview && (
+                    {notification.preview &&
+                    notification.preview !== "comment_like" &&
+                    notification.preview !== "reply_like" &&
+                    notification.preview !== "liked your comment" &&
+                    notification.preview !== "liked your reply" && (
                       <p className="mt-1 truncate text-xs text-neutral-500 dark:text-neutral-400">
                         &quot;{notification.preview}&quot;
                       </p>

@@ -163,13 +163,13 @@ const styles = StyleSheet.create({
   container: {
     alignSelf: "center",
     flex: 1,
-    gap: 10,
+    gap: webUi.layout.pageGap,
     maxWidth: webUi.layout.pageMaxWidth,
     width: "100%",
   },
   title: {
     color: webUi.color.text,
-    fontSize: 24,
+    fontSize: webUi.typography.pageTitle,
     fontWeight: "700",
   },
   searchRow: {
@@ -183,7 +183,7 @@ const styles = StyleSheet.create({
     color: webUi.color.text,
     flex: 1,
     paddingHorizontal: 12,
-    paddingVertical: 10,
+    paddingVertical: webUi.layout.controlVerticalPadding,
   },
   searchButton: {
     alignItems: "center",
@@ -202,7 +202,7 @@ const styles = StyleSheet.create({
   },
   tabButton: {
     borderColor: webUi.color.border,
-    borderRadius: webUi.radius.xl,
+    borderRadius: webUi.radius.xxl,
     borderWidth: 1,
     paddingHorizontal: 12,
     paddingVertical: 8,
@@ -225,7 +225,7 @@ const styles = StyleSheet.create({
   card: {
     backgroundColor: webUi.color.surface,
     borderColor: webUi.color.border,
-    borderRadius: webUi.radius.xl,
+    borderRadius: webUi.radius.xxl,
     borderWidth: 1,
     gap: 4,
     marginBottom: 8,

@@ -10,7 +10,10 @@ import { createNavigationContainerRef } from "@react-navigation/native";
 import { I18nProvider } from "./src/i18n";
 import type { Item } from "./src/types/item";
 import { registerPushTokenForUser } from "./src/lib/pushNotifications";
+import { hasPrivacyConsent, isLikelyNewGoogleUser } from "./src/lib/privacyConsent";
 import { supabase } from "./src/lib/supabase";
+import { LandingVideo } from "./src/components/LandingVideo";
+import { PrivacyConsentGateScreen } from "./src/screens/auth/PrivacyConsentGateScreen";
 import { ThemeProvider, type ThemePreference } from "./src/theme/ThemeContext";
 import { applyWebUiTheme, type AppTheme, webUi } from "./src/theme/webUi";
 import type { RootStackParamList } from "./src/navigation/types";
@@ -23,7 +26,9 @@ export default function App() {
   const [themePreference, setThemePreferenceState] = useState<ThemePreference>("system");
   const [resolvedTheme, setResolvedTheme] = useState<AppTheme>("light");
   const [initializing, setInitializing] = useState(true);
+  const [showLanding, setShowLanding] = useState(true);
   const [session, setSession] = useState<Session | null>(null);
+  const [needsConsentGate, setNeedsConsentGate] = useState(false);
 
   const getItemForPush = async (itemId: string): Promise<Item | null> => {
     const { data, error } = await supabase
@@ -276,6 +281,15 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    if (!session?.user) {
+      setNeedsConsentGate(false);
+      return;
+    }
+    const shouldGate = !hasPrivacyConsent(session.user) && isLikelyNewGoogleUser(session.user);
+    setNeedsConsentGate(shouldGate);
+  }, [session?.user]);
+
+  useEffect(() => {
     const sub = Notifications.addNotificationResponseReceivedListener((response) => {
       void routeFromPushData(response.notification.request.content.data as Record<string, unknown>);
     });
@@ -296,7 +310,20 @@ export default function App() {
     void registerPushTokenForUser(uid);
   }, [session?.user?.id]);
 
-  if (initializing || !themeReady) {
+  if (!themeReady) {
+    return (
+      <View style={[styles.center, { backgroundColor: webUi.color.bg }]}>
+        <ActivityIndicator size="large" />
+        <Text style={[styles.loadingText, { color: webUi.color.textMuted }]}>Initializing app...</Text>
+      </View>
+    );
+  }
+
+  if (showLanding) {
+    return <LandingVideo theme={resolvedTheme} onDone={() => setShowLanding(false)} />;
+  }
+
+  if (initializing) {
     return (
       <View style={[styles.center, { backgroundColor: webUi.color.bg }]}>
         <ActivityIndicator size="large" />
@@ -312,11 +339,12 @@ export default function App() {
       <ThemeProvider value={{ themePreference, resolvedTheme, setThemePreference }}>
         <I18nProvider>
           <View style={[styles.screen, { backgroundColor: webUi.color.bg }]}>
-            <StatusBar style={resolvedTheme === "dark" ? "light" : "dark"} />
-            <RootNavigator navigationRef={navigationRef} session={session} />
-            <View pointerEvents="none" style={styles.debugBadge}>
-              <Text style={styles.debugText}>{session ? "session:on" : "session:off"}</Text>
-            </View>
+            <StatusBar backgroundColor={webUi.color.surface} style={resolvedTheme === "dark" ? "light" : "dark"} />
+            {session && needsConsentGate ? (
+              <PrivacyConsentGateScreen onCompleted={() => setNeedsConsentGate(false)} />
+            ) : (
+              <RootNavigator navigationRef={navigationRef} session={session} />
+            )}
           </View>
         </I18nProvider>
       </ThemeProvider>
@@ -335,19 +363,5 @@ const styles = StyleSheet.create({
   },
   loadingText: {
     marginTop: 10,
-  },
-  debugBadge: {
-    bottom: 12,
-    left: 12,
-    position: "absolute",
-  },
-  debugText: {
-    backgroundColor: "rgba(15,23,42,0.75)",
-    borderRadius: 6,
-    color: "#FFFFFF",
-    fontSize: 11,
-    overflow: "hidden",
-    paddingHorizontal: 8,
-    paddingVertical: 4,
   },
 });

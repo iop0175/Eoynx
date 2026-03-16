@@ -17,7 +17,7 @@ export function FeedCardSkeleton() {
       </div>
 
       {/* Image placeholder */}
-      <div className="mb-3 aspect-square w-full rounded-xl bg-neutral-200 dark:bg-neutral-800" />
+      <div className="mb-3 aspect-[4/3] w-full rounded-xl bg-neutral-200 dark:bg-neutral-800" />
 
       {/* Title */}
       <div className="mb-2 h-5 w-3/4 rounded bg-neutral-200 dark:bg-neutral-800" />

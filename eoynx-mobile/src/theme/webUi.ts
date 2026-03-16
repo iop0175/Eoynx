@@ -55,6 +55,15 @@ const darkColor = {
 export const webUi = {
   layout: {
     pageMaxWidth: 920,
+    pageGap: 12,
+    controlVerticalPadding: 10,
+  },
+  typography: {
+    pageTitle: 24,
+    pageSubtitle: 12,
+    cardTitle: 14,
+    body: 13,
+    caption: 12,
   },
   color: {
     ...lightColor,

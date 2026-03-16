@@ -97,10 +97,12 @@ export async function fetchFeedPage(cursor?: string | null, category?: string): 
   let allComments: {
     id: string;
     item_id: string;
+    user_id: string;
     content: string;
     created_at: string;
-    profiles: unknown;
+    parent_id: string | null;
   }[] | null = null;
+  const profilesMap: Record<string, { handle: string | null; display_name: string | null; avatar_url: string | null }> = {};
 
   if (itemIds.length > 0) {
     const { data } = await supabase
@@ -108,13 +110,30 @@ export async function fetchFeedPage(cursor?: string | null, category?: string): 
       .select(`
         id,
         item_id,
+        user_id,
         content,
         created_at,
-        profiles(id, handle, display_name, avatar_url)
+        parent_id
       `)
       .in("item_id", itemIds)
       .order("created_at", { ascending: false });
     allComments = data;
+
+    const userIds = Array.from(new Set((data ?? []).map((comment) => comment.user_id)));
+    if (userIds.length > 0) {
+      const { data: profiles } = await supabase
+        .from("profiles")
+        .select("id, handle, display_name, avatar_url")
+        .in("id", userIds);
+
+      (profiles ?? []).forEach((profile) => {
+        profilesMap[profile.id] = {
+          handle: profile.handle,
+          display_name: profile.display_name,
+          avatar_url: profile.avatar_url,
+        };
+      });
+    }
   }
 
   // Group comments by item_id and format
@@ -136,14 +155,14 @@ export async function fetchFeedPage(cursor?: string | null, category?: string): 
 
     if (commentsMap[itemId].length < 5) {
       allCommentIds.push(comment.id);
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const profile = comment.profiles as any;
+      const profile = profilesMap[comment.user_id];
       commentsMap[itemId].push({
         id: comment.id,
         content: comment.content,
         created_at: comment.created_at,
+        parent_id: comment.parent_id,
         user: {
-          id: profile?.id ?? "",
+          id: comment.user_id,
           handle: profile?.handle ?? "unknown",
           display_name: profile?.display_name ?? null,
           avatar_url: profile?.avatar_url ?? null,

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Switch, Text, View } from "react-native";
+import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from "react-native";
 import { useNavigation } from "@react-navigation/native";
 import { useI18n } from "../i18n";
 import { supabase } from "../lib/supabase";
@@ -22,6 +22,9 @@ export function SettingsScreen() {
   const [userId, setUserId] = useState<string | null>(null);
   const [dmOpen, setDmOpen] = useState(true);
   const [blockedUsers, setBlockedUsers] = useState<BlockedUser[]>([]);
+  const [deleteConfirmText, setDeleteConfirmText] = useState("");
+  const [deletingAccount, setDeletingAccount] = useState(false);
+  const [deleteSectionOpen, setDeleteSectionOpen] = useState(false);
 
   useEffect(() => {
     void loadSettings();
@@ -131,13 +134,46 @@ export function SettingsScreen() {
     }
   };
 
+  const handleDeleteAccount = async () => {
+    if (deleteConfirmText.trim() !== "DELETE") {
+      Alert.alert("Validation", t("settings.deleteAccountConfirmRequired"));
+      return;
+    }
+    const confirmed = await new Promise<boolean>((resolve) => {
+      Alert.alert(t("settings.deleteAccountConfirmTitle"), t("settings.deleteAccountConfirmBody"), [
+        { text: t("common.cancel"), style: "cancel", onPress: () => resolve(false) },
+        { text: t("settings.deleteAccountAction"), style: "destructive", onPress: () => resolve(true) },
+      ]);
+    });
+    if (!confirmed) return;
+
+    setDeletingAccount(true);
+    const { error: deleteError } = await supabase.rpc("delete_my_account");
+    setDeletingAccount(false);
+
+    if (deleteError) {
+      const errorMessage = deleteError.message.includes("Could not find the function")
+        ? t("settings.deleteAccountMigrationHint")
+        : deleteError.message;
+      Alert.alert("Delete Account Error", errorMessage);
+      return;
+    }
+
+    const { error: signOutError } = await supabase.auth.signOut();
+    if (signOutError) {
+      Alert.alert("Sign Out Error", signOutError.message);
+      return;
+    }
+    Alert.alert("Success", t("settings.deleteAccountSuccess"));
+  };
+
   return (
     <ScrollView style={styles.scroll} contentContainerStyle={styles.container}>
       <Text style={styles.title}>{t("settings.title")}</Text>
 
       <View style={styles.card}>
         <Text style={styles.sectionTitle}>{t("settings.account")}</Text>
-        <Pressable onPress={() => navigation.navigate("Profile", { screen: "ProfileEdit" })} style={styles.rowButton}>
+        <Pressable onPress={() => navigation.navigate("ProfileEdit")} style={styles.rowButton}>
           <Text style={styles.rowLabel}>{t("settings.editProfile")}</Text>
           <Text style={styles.rowAction}>{t("settings.open")}</Text>
         </Pressable>
@@ -235,6 +271,33 @@ export function SettingsScreen() {
         ))}
       </View>
 
+      <View style={styles.card}>
+        <Pressable onPress={() => setDeleteSectionOpen((prev) => !prev)} style={styles.deleteHeaderButton}>
+          <Text style={styles.sectionTitle}>{t("settings.deleteAccount")}</Text>
+          <Text style={styles.deleteHeaderChevron}>{deleteSectionOpen ? "▾" : "▸"}</Text>
+        </Pressable>
+        {deleteSectionOpen ? (
+          <>
+            <Text style={styles.rowHint}>{t("settings.deleteAccountHint")}</Text>
+            <TextInput
+              autoCapitalize="characters"
+              autoCorrect={false}
+              editable={!deletingAccount}
+              onChangeText={setDeleteConfirmText}
+              placeholder={t("settings.deleteAccountPlaceholder")}
+              placeholderTextColor={webUi.color.placeholder}
+              style={styles.deleteInput}
+              value={deleteConfirmText}
+            />
+            <Pressable disabled={deletingAccount} onPress={handleDeleteAccount} style={styles.deleteButton}>
+              <Text style={styles.deleteButtonLabel}>
+                {deletingAccount ? t("auth.loading") : t("settings.deleteAccount")}
+              </Text>
+            </Pressable>
+          </>
+        ) : null}
+      </View>
+
       <Pressable onPress={handleSignOut} style={styles.signOutButton}>
         <Text style={styles.signOutLabel}>{t("settings.signOut")}</Text>
       </Pressable>
@@ -249,14 +312,14 @@ const styles = StyleSheet.create({
   container: {
     alignSelf: "center",
     flexGrow: 1,
-    gap: 12,
+    gap: webUi.layout.pageGap,
     maxWidth: webUi.layout.pageMaxWidth,
     paddingBottom: 24,
     width: "100%",
   },
   title: {
     color: webUi.color.text,
-    fontSize: 26,
+    fontSize: webUi.typography.pageTitle,
     fontWeight: "700",
   },
   sectionTitle: {
@@ -367,6 +430,35 @@ const styles = StyleSheet.create({
   },
   signOutLabel: {
     color: webUi.color.primaryText,
+    fontWeight: "700",
+  },
+  deleteInput: {
+    backgroundColor: webUi.color.surfaceMuted,
+    borderColor: webUi.color.border,
+    borderRadius: webUi.radius.xl,
+    borderWidth: 1,
+    color: webUi.color.text,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  deleteButton: {
+    alignItems: "center",
+    backgroundColor: webUi.color.danger,
+    borderRadius: webUi.radius.xl,
+    paddingVertical: 11,
+  },
+  deleteButtonLabel: {
+    color: webUi.color.primaryText,
+    fontWeight: "700",
+  },
+  deleteHeaderButton: {
+    alignItems: "center",
+    flexDirection: "row",
+    justifyContent: "space-between",
+  },
+  deleteHeaderChevron: {
+    color: webUi.color.textMuted,
+    fontSize: 14,
     fontWeight: "700",
   },
 });

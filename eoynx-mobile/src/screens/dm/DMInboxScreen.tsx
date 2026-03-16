@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { ActivityIndicator, Alert, FlatList, Image, Pressable, StyleSheet, Text, View } from "react-native";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
+import { useI18n } from "../../i18n";
 import { supabase } from "../../lib/supabase";
 import { decryptWithRoomKey, importRoomKey } from "../../lib/dmCrypto";
 import type { FeedStackParamList } from "../../navigation/types";
@@ -43,7 +44,18 @@ type InboxThread = {
   unreadCount: number;
 };
 
-export function DMInboxScreen({ navigation }: Props) {
+function getInboxPreview(content: string | null, imageUrl: string | null | undefined, t: (key: any, vars?: Record<string, string | number>) => string) {
+  const normalized = (content ?? "").trim();
+  const sharedMatch =
+    normalized.match(/^피드를 공유했습니다\n(.+)\nhttps?:\/\/[^\s]+\/i\/[a-f0-9-]+$/i) ??
+    normalized.match(/^📦\s+(.+)\nhttps?:\/\/[^\s]+\/i\/[a-f0-9-]+$/i);
+  if (sharedMatch) return t("dm.feedShared", { title: sharedMatch[1].trim() });
+  if (!normalized && imageUrl) return t("dm.photo");
+  return normalized || t("dm.noMessages");
+}
+
+export function DMInboxScreen({ navigation, route }: Props) {
+  const { t } = useI18n();
   const [loading, setLoading] = useState(true);
   const [threads, setThreads] = useState<InboxThread[]>([]);
   const [userId, setUserId] = useState<string | null>(null);
@@ -58,7 +70,7 @@ export function DMInboxScreen({ navigation }: Props) {
     const { data: authData, error: authError } = await supabase.auth.getUser();
     if (authError || !authData.user) {
       setLoading(false);
-      Alert.alert("Auth Error", authError?.message ?? "No authenticated user.");
+      Alert.alert(t("alert.authError"), authError?.message ?? t("common.unknownError"));
       return;
     }
     const userId = authData.user.id;
@@ -73,7 +85,7 @@ export function DMInboxScreen({ navigation }: Props) {
 
     if (threadError) {
       setLoading(false);
-      Alert.alert("Load Error", threadError.message);
+      Alert.alert(t("alert.loadError"), threadError.message);
       return;
     }
 
@@ -105,7 +117,7 @@ export function DMInboxScreen({ navigation }: Props) {
     setLoading(false);
 
     if (profilesRes.error || lastMsgRes.error || unreadRes.error) {
-      Alert.alert("Load Error", profilesRes.error?.message ?? lastMsgRes.error?.message ?? unreadRes.error?.message ?? "Unknown error");
+      Alert.alert(t("alert.loadError"), profilesRes.error?.message ?? lastMsgRes.error?.message ?? unreadRes.error?.message ?? t("common.unknownError"));
       return;
     }
 
@@ -122,34 +134,33 @@ export function DMInboxScreen({ navigation }: Props) {
     }
 
     const mapped = await Promise.all(
-      threadRows.map(async (t) => {
-        const otherId = t.participant1_id === userId ? t.participant2_id : t.participant1_id;
+      threadRows.map(async (thread) => {
+        const otherId = thread.participant1_id === userId ? thread.participant2_id : thread.participant1_id;
         const profile = profileMap.get(otherId);
-        const last = lastMap.get(t.id);
+        const last = lastMap.get(thread.id);
         let preview: string | null = null;
         if (last) {
-          if (last.image_url) {
-            preview = "Photo";
-          } else if (last.is_encrypted && last.encrypted_content && last.iv && t.room_key) {
-            const importedRoomKey = await importRoomKey(t.room_key);
-            preview = importedRoomKey
-              ? ((await decryptWithRoomKey(importedRoomKey, last.encrypted_content, last.iv)) ?? "Encrypted message")
-              : "Encrypted message";
+          if (last.is_encrypted && last.encrypted_content && last.iv && thread.room_key) {
+            const importedRoomKey = await importRoomKey(thread.room_key);
+            const decrypted = importedRoomKey
+              ? ((await decryptWithRoomKey(importedRoomKey, last.encrypted_content, last.iv)) ?? t("dm.encryptedMessage"))
+              : t("dm.encryptedMessage");
+            preview = getInboxPreview(decrypted, last.image_url, t);
           } else if (last.is_encrypted) {
-            preview = "Encrypted message";
+            preview = t("dm.encryptedMessage");
           } else {
-            preview = last.encrypted_content ?? null;
+            preview = getInboxPreview(last.encrypted_content ?? null, last.image_url, t);
           }
         }
         return {
-          id: t.id,
+          id: thread.id,
           otherId,
           otherHandle: profile?.handle ?? "unknown",
           otherName: profile?.display_name ?? null,
           otherAvatarUrl: profile?.avatar_url ?? null,
           lastMessage: preview,
-          lastMessageAt: t.last_message_at,
-          unreadCount: unreadMap.get(t.id) ?? 0,
+          lastMessageAt: thread.last_message_at,
+          unreadCount: unreadMap.get(thread.id) ?? 0,
         } as InboxThread;
       })
     );
@@ -234,7 +245,7 @@ export function DMInboxScreen({ navigation }: Props) {
     const hours = Math.floor(diff / 3600000);
     const days = Math.floor(diff / 86400000);
 
-    if (minutes < 1) return "Just now";
+    if (minutes < 1) return t("dm.justNow");
     if (minutes < 60) return `${minutes}m`;
     if (hours < 24) return `${hours}h`;
     if (days < 7) return `${days}d`;
@@ -245,11 +256,11 @@ export function DMInboxScreen({ navigation }: Props) {
     <View style={styles.container}>
       <View style={styles.headerRow}>
         <View>
-          <Text style={styles.title}>Messages</Text>
-          <Text style={styles.subtitle}>Private conversations</Text>
+          <Text style={styles.title}>{t("dm.messagesTitle")}</Text>
+          <Text style={styles.subtitle}>{t("dm.privateConversations")}</Text>
         </View>
         <Pressable onPress={() => navigation.navigate("DMRequests")} style={styles.requestsButton}>
-          <Text style={styles.requestsLabel}>Requests</Text>
+          <Text style={styles.requestsLabel}>{t("dm.requests")}</Text>
         </Pressable>
       </View>
 
@@ -258,7 +269,7 @@ export function DMInboxScreen({ navigation }: Props) {
       <FlatList
         data={threads}
         keyExtractor={(item) => item.id}
-        ListEmptyComponent={<Text style={styles.empty}>No conversations yet.</Text>}
+        ListEmptyComponent={<Text style={styles.empty}>{t("dm.noConversations")}</Text>}
         renderItem={({ item }) => (
           <Pressable
             onPress={() =>
@@ -267,6 +278,7 @@ export function DMInboxScreen({ navigation }: Props) {
                 otherHandle: item.otherHandle,
                 otherName: item.otherName,
                 otherAvatarUrl: item.otherAvatarUrl,
+                prefillText: route.params?.shareText,
               })
             }
             style={styles.card}
@@ -287,7 +299,7 @@ export function DMInboxScreen({ navigation }: Props) {
                 {item.unreadCount > 0 ? <Text style={styles.badge}>{item.unreadCount > 9 ? "9+" : item.unreadCount}</Text> : null}
               </View>
               <Text numberOfLines={1} style={styles.preview}>
-                {item.lastMessage ?? "No messages yet."}
+                {item.lastMessage ?? t("dm.noMessages")}
               </Text>
             </View>
           </Pressable>
@@ -301,19 +313,19 @@ const styles = StyleSheet.create({
   container: {
     alignSelf: "center",
     flex: 1,
-    gap: 8,
+    gap: webUi.layout.pageGap,
     maxWidth: webUi.layout.pageMaxWidth,
     width: "100%",
   },
   headerRow: { alignItems: "center", flexDirection: "row", justifyContent: "space-between" },
-  title: { color: webUi.color.text, fontSize: 22, fontWeight: "700" },
-  subtitle: { color: webUi.color.textMuted, fontSize: 12, marginTop: 2 },
+  title: { color: webUi.color.text, fontSize: webUi.typography.pageTitle, fontWeight: "700" },
+  subtitle: { color: webUi.color.textMuted, fontSize: webUi.typography.pageSubtitle, marginTop: 2 },
   requestsButton: {
     borderColor: webUi.color.border,
     borderRadius: 999,
     borderWidth: 1,
     paddingHorizontal: 12,
-    paddingVertical: 7,
+    paddingVertical: 8,
   },
   requestsLabel: { color: webUi.color.textSecondary, fontSize: 12, fontWeight: "600" },
   loader: { marginTop: 8 },

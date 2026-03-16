@@ -10,15 +10,24 @@ export type MainTabParamList = {
   Search: undefined;
   Add: undefined;
   Profile: undefined;
-  Settings: undefined;
 };
 
 export type FeedStackParamList = {
   FeedList: undefined;
   FeedItemDetail: { item: Item };
   UserProfile: { ownerId: string; handle: string };
-  DMInbox: undefined;
-  DMThread: { threadId: string; otherHandle: string; otherName?: string | null; otherAvatarUrl?: string | null };
+  DMInbox:
+    | {
+        shareText?: string;
+      }
+    | undefined;
+  DMThread: {
+    threadId: string;
+    otherHandle: string;
+    otherName?: string | null;
+    otherAvatarUrl?: string | null;
+    prefillText?: string;
+  };
   DMRequests: undefined;
   NotificationsHome: undefined;
 };
@@ -37,4 +46,5 @@ export type ProfileStackParamList = {
   ProfileOverview: undefined;
   ProfileEdit: undefined;
   FeedItemDetail: { item: Item };
+  SettingsHome: undefined;
 };

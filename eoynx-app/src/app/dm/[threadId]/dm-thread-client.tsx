@@ -19,6 +19,7 @@ interface Message {
   sender_id: string;
   content: string;
   created_at: string;
+  is_pending?: boolean;
   // E2E 암호화 필드 (서버에서 복호화 후 전달됨)
   is_encrypted?: boolean;
   // 이미지 첨부
@@ -41,6 +42,40 @@ interface DMThreadClientProps {
   roomKeyBase64: string | null; // 평문 room key (Base64)
 }
 
+type SharedItemPreview = {
+  id: string;
+  title: string;
+  image_url: string | null;
+  brand: string | null;
+  category: string | null;
+};
+
+function parseSharedItemMessage(raw: string) {
+  const normalized = raw.trim();
+  const match =
+    normalized.match(/^피드를 공유했습니다\n(.+)\n(https?:\/\/[^\s]+\/i\/[a-f0-9-]+)$/i) ??
+    normalized.match(/^📦\s+(.+)\n(https?:\/\/[^\s]+\/i\/[a-f0-9-]+)$/i);
+  if (!match) return null;
+
+  let path = "";
+  let itemId = "";
+  try {
+    const parsed = new URL(match[2].trim());
+    path = parsed.pathname;
+    const idMatch = path.match(/^\/i\/([a-f0-9-]+)$/i);
+    itemId = idMatch?.[1] ?? "";
+  } catch {
+    // Keep fallback values empty when URL parsing fails.
+  }
+
+  return {
+    title: match[1].trim(),
+    url: match[2].trim(),
+    path,
+    itemId,
+  };
+}
+
 export function DMThreadClient({
   threadId,
   otherUser,
@@ -53,8 +88,13 @@ export function DMThreadClient({
   const [messages, setMessages] = useState<Message[]>(initialMessages);
   const [newMessage, setNewMessage] = useState("");
   const [isPending, startTransition] = useTransition();
+  const [atBottom, setAtBottom] = useState(true);
+  const [hasNewIncoming, setHasNewIncoming] = useState(false);
+  const [sendError, setSendError] = useState<string | null>(null);
+  const [retryPayload, setRetryPayload] = useState<{ content: string; image: File | null } | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const scrollAreaRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   
   // 메뉴 상태
@@ -69,6 +109,11 @@ export function DMThreadClient({
   // 방 키 암호화 상태 (전송용)
   const [roomKey, setRoomKey] = useState<CryptoKey | null>(null);
   const [encryptionReady, setEncryptionReady] = useState(false);
+  const [sharedItemPreviews, setSharedItemPreviews] = useState<Record<string, SharedItemPreview>>({});
+
+  const scrollToBottom = useCallback((behavior: ScrollBehavior = "smooth") => {
+    messagesEndRef.current?.scrollIntoView({ behavior });
+  }, []);
 
   // 대화 나가기 핸들러
   const handleLeave = async () => {
@@ -100,7 +145,6 @@ export function DMThreadClient({
         setRoomKey(cryptoKey);
         setEncryptionReady(true);
       } catch (error) {
-        console.error("Room key import failed:", error);
         setEncryptionReady(true);
       }
     }
@@ -179,6 +223,10 @@ export function DMThreadClient({
           image_url: toPublicUrl(newRow.image_url),  // 경로를 public URL로 변환
         }];
       });
+
+      if (!atBottom) {
+        setHasNewIncoming(true);
+      }
     };
 
     const channel = supabase
@@ -193,19 +241,64 @@ export function DMThreadClient({
         },
         handleNewMessage
       )
-      .subscribe((status) => {
-        console.log(`[DM Realtime] Channel status: ${status}`);
-      });
+      .subscribe();
 
     return () => {
       void supabase.removeChannel(channel);
     };
-  }, [threadId, roomKey, currentUserId]);
+  }, [threadId, roomKey, currentUserId, atBottom]);
 
   // Scroll to bottom when messages change
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
+    if (atBottom) {
+      scrollToBottom("smooth");
+      setHasNewIncoming(false);
+    }
+  }, [messages, atBottom, scrollToBottom]);
+
+  useEffect(() => {
+    scrollToBottom("auto");
+  }, [scrollToBottom]);
+
+  useEffect(() => {
+    const sharedIds = Array.from(
+      new Set(
+        messages
+          .map((message) => (message.content ? parseSharedItemMessage(message.content) : null))
+          .filter((shared): shared is NonNullable<ReturnType<typeof parseSharedItemMessage>> => Boolean(shared?.itemId))
+          .map((shared) => shared.itemId)
+      )
+    );
+
+    const missingIds = sharedIds.filter((id) => !sharedItemPreviews[id]);
+    if (missingIds.length === 0) return;
+
+    let canceled = false;
+
+    void Promise.all(
+      missingIds.map(async (id) => {
+        const response = await fetch(`/api/items/${id}/preview`, { cache: "no-store" });
+        if (!response.ok) return null;
+        const data = (await response.json()) as SharedItemPreview;
+        return data;
+      })
+    ).then((results) => {
+      if (canceled) return;
+      const nextEntries = results.filter((item): item is SharedItemPreview => Boolean(item));
+      if (nextEntries.length === 0) return;
+      setSharedItemPreviews((prev) => {
+        const next = { ...prev };
+        nextEntries.forEach((item) => {
+          next[item.id] = item;
+        });
+        return next;
+      });
+    });
+
+    return () => {
+      canceled = true;
+    };
+  }, [messages, sharedItemPreviews]);
 
   // Focus input on mount
   useEffect(() => {
@@ -246,84 +339,118 @@ export function DMThreadClient({
     }
   };
 
-  const handleSend = async () => {
-    const content = newMessage.trim();
-    if (!content && !selectedImage) return;
+  const sendMessageInternal = async (contentParam: string, imageParam: File | null) => {
+    const content = contentParam.trim();
+    if (!content && !imageParam) return;
     if (isPending || !canSend || uploadingImage) return;
 
-    // 이미지 업로드 먼저 처리
-    let imagePath: string | undefined;  // DB 저장용 경로
-    let imageUrl: string | undefined;   // 클라이언트 표시용 URL
-    if (selectedImage) {
+    setSendError(null);
+
+    let imagePath: string | undefined;
+    let imageUrl: string | undefined;
+    if (imageParam) {
       setUploadingImage(true);
       const formData = new FormData();
-      formData.append("file", selectedImage);
-      
+      formData.append("file", imageParam);
+
       const uploadResult = await uploadDMImage(threadId, formData);
-      console.log("[DM Upload] Result:", uploadResult);
       setUploadingImage(false);
-      
+
       if (uploadResult.error) {
-        alert(uploadResult.error);
+        setSendError(uploadResult.error);
         return;
       }
       imagePath = uploadResult.imagePath;
       imageUrl = uploadResult.imageUrl;
-      console.log("[DM Upload] imagePath:", imagePath, "imageUrl:", imageUrl);
       handleCancelImage();
     }
 
-    // Optimistic update
     const tempMessage: Message = {
       id: `temp-${Date.now()}`,
       sender_id: currentUserId,
       content: content || "",
       created_at: new Date().toISOString(),
-      image_url: imageUrl,  // 표시용 URL 사용
+      image_url: imageUrl,
+      is_pending: true,
     };
     setMessages((prev) => [...prev, tempMessage]);
     setNewMessage("");
+    setRetryPayload(null);
+    scrollToBottom();
 
     startTransition(async () => {
       try {
         let encryptedData = undefined;
-        
-        // 방 키가 있고 텍스트가 있으면 암호화
+
         if (roomKey && content) {
           const encrypted = await encryptWithRoomKey(roomKey, content);
           encryptedData = {
             encryptedContent: encrypted.encryptedContent,
-            encryptedKey: "", // 방 키 방식에서는 사용 안함
+            encryptedKey: "",
             iv: encrypted.iv,
           };
         }
-        
-        const result = await sendMessage(threadId, content || "", encryptedData, imagePath);  // 경로 저장
-        
+
+        const result = await sendMessage(threadId, content || "", encryptedData, imagePath);
+
         if (result.error) {
-          // Remove optimistic message on error
           setMessages((prev) => prev.filter((m) => m.id !== tempMessage.id));
-          alert(result.error);
+          setRetryPayload({ content, image: imageParam });
+          setSendError(result.error);
         } else if (result.message) {
-          // Replace temp message with real one, but keep the original imageUrl (signed URL)
           setMessages((prev) =>
-            prev.map((m) => (m.id === tempMessage.id 
-              ? { ...result.message!, content: content || "", image_url: imageUrl ?? result.message!.image_url } 
-              : m))
+            prev.map((m) =>
+              m.id === tempMessage.id
+                ? {
+                    ...result.message!,
+                    content: content || "",
+                    image_url: imageUrl ?? result.message!.image_url,
+                  }
+                : m
+            )
           );
         }
-      } catch (error) {
-        console.error("Send failed:", error);
+      } catch {
         setMessages((prev) => prev.filter((m) => m.id !== tempMessage.id));
-        alert("메시지 전송 실패");
+        setRetryPayload({ content, image: imageParam });
+        setSendError("메시지 전송 실패");
       }
     });
   };
 
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+  const handleSend = async () => {
+    await sendMessageInternal(newMessage, selectedImage);
+  };
+
+  const handleRetrySend = async () => {
+    if (!retryPayload) return;
+    await sendMessageInternal(retryPayload.content, retryPayload.image);
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
-      handleSend();
+      void handleSend();
+    }
+  };
+
+  const handleComposerChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const value = e.target.value;
+    setNewMessage(value);
+
+    if (!inputRef.current) return;
+    inputRef.current.style.height = "auto";
+    const nextHeight = Math.min(inputRef.current.scrollHeight, 144);
+    inputRef.current.style.height = `${Math.max(nextHeight, 48)}px`;
+  };
+
+  const handleScroll = () => {
+    const el = scrollAreaRef.current;
+    if (!el) return;
+    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+    setAtBottom(nearBottom);
+    if (nearBottom) {
+      setHasNewIncoming(false);
     }
   };
 
@@ -411,7 +538,11 @@ export function DMThreadClient({
     >
       <div className="flex flex-col gap-4">
         {/* Messages */}
-        <div className="flex max-h-[60vh] min-h-[300px] flex-col gap-3 overflow-y-auto rounded-xl border border-neutral-200 bg-white p-4 dark:border-neutral-800 dark:bg-black">
+        <div
+          ref={scrollAreaRef}
+          onScroll={handleScroll}
+          className="flex max-h-[60vh] min-h-[300px] flex-col gap-3 overflow-y-auto rounded-xl border border-neutral-200 bg-white p-4 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden dark:border-neutral-800 dark:bg-black"
+        >
           {messages.length === 0 ? (
             <div className="flex flex-1 items-center justify-center text-sm text-neutral-500">
               대화를 시작하세요
@@ -421,6 +552,8 @@ export function DMThreadClient({
               {messages.map((message) => {
                 const isOwn = message.sender_id === currentUserId;
                 const isEncrypted = message.is_encrypted;
+                const sharedItem = message.content ? parseSharedItemMessage(message.content) : null;
+                const sharedPreview = sharedItem?.itemId ? sharedItemPreviews[sharedItem.itemId] : null;
                 
                 return (
                   <div
@@ -430,7 +563,7 @@ export function DMThreadClient({
                     <div
                       className={`max-w-[75%] rounded-2xl px-4 py-2 ${
                         isOwn
-                          ? "bg-neutral-900 text-white dark:bg-neutral-100 dark:text-black"
+                          ? "bg-neutral-900 text-white dark:bg-neutral-900 dark:text-white"
                           : "bg-neutral-100 text-neutral-900 dark:bg-neutral-800 dark:text-white"
                       }`}
                     >
@@ -443,7 +576,67 @@ export function DMThreadClient({
                           style={{ maxHeight: "200px" }}
                         />
                       )}
-                      {message.content && (
+                      {sharedItem ? (
+                        <Link
+                          href={sharedItem.path || sharedItem.url}
+                          className={`mb-1 block rounded-2xl border px-3 py-3 transition-colors ${
+                            isOwn
+                              ? "border-white/25 bg-white/10 text-white shadow-sm hover:bg-white/15"
+                              : "border-neutral-300 bg-white text-slate-900 shadow-sm hover:bg-neutral-50 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-100 dark:hover:bg-neutral-800"
+                          }`}
+                        >
+                          <p className={`text-[10px] font-semibold uppercase tracking-[0.12em] ${isOwn ? "text-white/70" : "text-neutral-500 dark:text-neutral-400"}`}>
+                            Shared Item
+                          </p>
+                          <div className="mt-2 flex items-center gap-2.5">
+                            {sharedPreview?.image_url ? (
+                              <img
+                                src={sharedPreview.image_url}
+                                alt={sharedPreview.title}
+                                className="h-14 w-14 rounded-lg object-cover"
+                              />
+                            ) : (
+                              <div className={`flex h-14 w-14 items-center justify-center rounded-lg text-lg ${
+                                isOwn ? "bg-white/20" : "bg-black/10 dark:bg-white/15"
+                              }`}>
+                                📦
+                              </div>
+                            )}
+                            <div className="min-w-0 flex-1">
+                              <p className="truncate text-sm font-semibold leading-snug">
+                                {sharedPreview?.title ?? sharedItem.title}
+                              </p>
+                            </div>
+                          </div>
+                          {(sharedPreview?.brand || sharedPreview?.category) && (
+                            <div className="mt-2 flex gap-1.5">
+                              {sharedPreview.brand && (
+                                <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${
+                                  isOwn ? "bg-white/20 text-white" : "bg-black/10 dark:bg-white/15"
+                                }`}>
+                                  {sharedPreview.brand}
+                                </span>
+                              )}
+                              {sharedPreview.category && (
+                                <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${
+                                  isOwn ? "bg-white/20 text-white" : "bg-black/10 dark:bg-white/15"
+                                }`}>
+                                  {sharedPreview.category}
+                                </span>
+                              )}
+                            </div>
+                          )}
+                          <div className="mt-2 text-right">
+                            <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-[10px] font-semibold ${
+                              isOwn
+                                ? "bg-white/90 text-neutral-900"
+                                : "bg-neutral-900 text-white dark:bg-neutral-100 dark:text-neutral-900"
+                            }`}>
+                              아이템 보기
+                            </span>
+                          </div>
+                        </Link>
+                      ) : message.content && (
                         <p className="whitespace-pre-wrap break-words text-sm">
                           {message.content}
                         </p>
@@ -458,6 +651,7 @@ export function DMThreadClient({
                         {isEncrypted && (
                           <Lock className="h-2.5 w-2.5" />
                         )}
+                        {message.is_pending && <Loader2 className="h-2.5 w-2.5 animate-spin" />}
                         {formatTime(message.created_at)}
                       </p>
                     </div>
@@ -468,6 +662,21 @@ export function DMThreadClient({
             </>
           )}
         </div>
+
+        {hasNewIncoming && (
+          <div className="-mt-2 flex justify-center">
+            <button
+              type="button"
+              onClick={() => {
+                scrollToBottom();
+                setHasNewIncoming(false);
+              }}
+              className="rounded-full border border-neutral-200 bg-white px-3 py-1 text-xs font-medium text-neutral-700 hover:bg-neutral-50 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-200 dark:hover:bg-neutral-800"
+            >
+              새 메시지 보기
+            </button>
+          </div>
+        )}
 
         {/* 이미지 미리보기 */}
         {imagePreview && (
@@ -510,15 +719,15 @@ export function DMThreadClient({
             )}
           </button>
           
-          <input
+          <textarea
             ref={inputRef}
-            type="text"
             value={newMessage}
-            onChange={(e) => setNewMessage(e.target.value)}
+            onChange={handleComposerChange}
             onKeyDown={handleKeyDown}
             placeholder="메시지 입력..."
             disabled={isPending || !canSend || uploadingImage}
-            className="flex-1 rounded-xl border border-neutral-200 bg-white px-4 py-3 text-sm outline-none placeholder:text-neutral-400 focus:border-neutral-300 disabled:opacity-50 dark:border-neutral-800 dark:bg-black dark:focus:border-neutral-700"
+            rows={1}
+            className="max-h-36 min-h-[48px] flex-1 resize-none rounded-xl border border-neutral-200 bg-white px-4 py-3 text-sm outline-none placeholder:text-neutral-400 focus:border-neutral-300 disabled:opacity-50 dark:border-neutral-800 dark:bg-black dark:focus:border-neutral-700"
           />
           <button
             type="button"
@@ -537,6 +746,25 @@ export function DMThreadClient({
           <p className="text-xs text-amber-600 dark:text-amber-400">
             상대방이 DM 요청을 수락하면 메시지를 보낼 수 있습니다.
           </p>
+        )}
+        {newMessage.trim().length > 1800 && (
+          <p className="text-right text-[11px] text-neutral-500 dark:text-neutral-400">
+            {newMessage.trim().length}/2000
+          </p>
+        )}
+        {sendError && (
+          <div className="flex items-center justify-between rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700 dark:border-red-900/50 dark:bg-red-900/20 dark:text-red-300">
+            <span>{sendError}</span>
+            {retryPayload && (
+              <button
+                type="button"
+                onClick={() => void handleRetrySend()}
+                className="rounded-md bg-red-600 px-2 py-1 font-medium text-white hover:bg-red-700"
+              >
+                재시도
+              </button>
+            )}
+          </div>
         )}
       </div>
     </PageShell>

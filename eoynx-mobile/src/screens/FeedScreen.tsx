@@ -11,14 +11,17 @@ import {
   Share,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from "react-native";
 import Svg, { Path } from "react-native-svg";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { ReportModal, type ReportReason } from "../components/ReportModal";
 import { useI18n } from "../i18n";
+import { encryptWithRoomKey, generateSimpleRoomKey, importRoomKey } from "../lib/dmCrypto";
 import { supabase } from "../lib/supabase";
 import type { FeedStackParamList } from "../navigation/types";
+import { useThemePreference } from "../theme/ThemeContext";
 import { webUi } from "../theme/webUi";
 import type { Item } from "../types/item";
 
@@ -32,6 +35,9 @@ const CATEGORIES = [
   { id: "cars" },
   { id: "real-estate" },
 ];
+
+const LOGO_LIGHT = require("../../assets/logo-mark.png");
+const LOGO_DARK = require("../../assets/logo-mark-white.png");
 
 type ItemRow = {
   id: string;
@@ -54,6 +60,49 @@ type CommentPreviewRow = {
   content: string;
   created_at: string;
 };
+
+type ShareFollower = {
+  id: string;
+  handle: string;
+  display_name: string | null;
+  avatar_url: string | null;
+};
+
+type FeedCommentRow = {
+  id: string;
+  item_id: string;
+  user_id: string;
+  content: string;
+  created_at: string;
+  parent_id: string | null;
+};
+
+type FeedCommentView = FeedCommentRow & {
+  like_count: number;
+  is_liked: boolean;
+  user: {
+    id: string;
+    handle: string;
+    display_name: string | null;
+    avatar_url: string | null;
+  };
+};
+
+type ReportCommentTarget = {
+  id: string;
+  handle: string;
+};
+
+const DELETED_COMMENT_SELF_KO = "삭제된 메시지 입니다";
+const DELETED_COMMENT_BY_OWNER_KO = "게시자에 의해 삭제됀 메시지 입니다";
+const DELETED_COMMENT_SELF_EN = "Deleted message";
+const DELETED_COMMENT_BY_OWNER_EN = "Deleted by post owner";
+
+const isDeletedComment = (content: string) =>
+  content === DELETED_COMMENT_SELF_KO ||
+  content === DELETED_COMMENT_BY_OWNER_KO ||
+  content === DELETED_COMMENT_SELF_EN ||
+  content === DELETED_COMMENT_BY_OWNER_EN;
 
 function DmIcon() {
   return (
@@ -121,6 +170,16 @@ function BookmarkActionIcon({ active }: { active: boolean }) {
 
 export function FeedScreen({ navigation }: Props) {
   const { t } = useI18n();
+  const { resolvedTheme } = useThemePreference();
+  const getCommentDisplayContent = (content: string) => {
+    if (content === DELETED_COMMENT_BY_OWNER_KO || content === DELETED_COMMENT_BY_OWNER_EN) {
+      return t("feed.commentDeletedByOwner");
+    }
+    if (content === DELETED_COMMENT_SELF_KO || content === DELETED_COMMENT_SELF_EN) {
+      return t("feed.commentDeletedBySelf");
+    }
+    return content;
+  };
   const [itemsLoading, setItemsLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -132,10 +191,26 @@ export function FeedScreen({ navigation }: Props) {
   const [userHandle, setUserHandle] = useState<string | null>(null);
   const [notificationUnreadCount, setNotificationUnreadCount] = useState(0);
   const [reportTargetItem, setReportTargetItem] = useState<Item | null>(null);
+  const [reportTargetComment, setReportTargetComment] = useState<ReportCommentTarget | null>(null);
   const [expandedItemId, setExpandedItemId] = useState<string | null>(null);
   const [cardImageIndexById, setCardImageIndexById] = useState<Record<string, number>>({});
   const [cardImageWidthById, setCardImageWidthById] = useState<Record<string, number>>({});
   const [viewerImageUri, setViewerImageUri] = useState<string | null>(null);
+  const [shareItem, setShareItem] = useState<Item | null>(null);
+  const [dmShareItem, setDmShareItem] = useState<Item | null>(null);
+  const [shareFollowersVisible, setShareFollowersVisible] = useState(false);
+  const [shareFollowersLoading, setShareFollowersLoading] = useState(false);
+  const [shareFollowers, setShareFollowers] = useState<ShareFollower[]>([]);
+  const [shareSendingToId, setShareSendingToId] = useState<string | null>(null);
+  const [commentsByItem, setCommentsByItem] = useState<Record<string, FeedCommentView[]>>({});
+  const [commentsLoadingByItem, setCommentsLoadingByItem] = useState<Record<string, boolean>>({});
+  const [commentDraftByItem, setCommentDraftByItem] = useState<Record<string, string>>({});
+  const [replyToCommentByItem, setReplyToCommentByItem] = useState<Record<string, FeedCommentView | null>>({});
+  const [commentActionLoadingByItem, setCommentActionLoadingByItem] = useState<Record<string, boolean>>({});
+  const [commentLikeLoadingById, setCommentLikeLoadingById] = useState<Record<string, boolean>>({});
+  const [editingCommentIdByItem, setEditingCommentIdByItem] = useState<Record<string, string | null>>({});
+  const [editingCommentDraftByItem, setEditingCommentDraftByItem] = useState<Record<string, string>>({});
+  const [commentMutatingById, setCommentMutatingById] = useState<Record<string, boolean>>({});
   const feedItemIdsRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
@@ -280,7 +355,7 @@ export function FeedScreen({ navigation }: Props) {
     }
 
     if (error) {
-      Alert.alert("Load Error", error.message);
+      Alert.alert(t("alert.loadError"), error.message);
       return;
     }
 
@@ -308,12 +383,12 @@ export function FeedScreen({ navigation }: Props) {
 
       if (likesRes.error || commentsRes.error || bookmarksRes.error || commentPreviewRes.error) {
         Alert.alert(
-          "Load Error",
+          t("alert.loadError"),
           likesRes.error?.message ??
             commentsRes.error?.message ??
             bookmarksRes.error?.message ??
             commentPreviewRes.error?.message ??
-            "Unknown error"
+            t("common.unknownError")
         );
         return;
       }
@@ -358,7 +433,7 @@ export function FeedScreen({ navigation }: Props) {
         .in("id", previewUserIds);
 
       if (previewProfilesError) {
-        Alert.alert("Load Error", previewProfilesError.message);
+        Alert.alert(t("alert.loadError"), previewProfilesError.message);
         return;
       }
 
@@ -428,7 +503,7 @@ export function FeedScreen({ navigation }: Props) {
 
   const handleLikeToggle = async (itemId: string, liked: boolean) => {
     if (!userId) {
-      Alert.alert("Auth Required", "Please sign in first.");
+      Alert.alert(t("alert.authRequired"), t("alert.pleaseSignInFirst"));
       return;
     }
 
@@ -439,7 +514,7 @@ export function FeedScreen({ navigation }: Props) {
     setActionLoading((prev) => ({ ...prev, [itemId]: false }));
 
     if (error) {
-      Alert.alert("Like Error", error.message);
+      Alert.alert(t("alert.likeError"), error.message);
       return;
     }
 
@@ -460,7 +535,7 @@ export function FeedScreen({ navigation }: Props) {
 
   const handleBookmarkToggle = async (itemId: string, bookmarked: boolean) => {
     if (!userId) {
-      Alert.alert("Auth Required", "Please sign in first.");
+      Alert.alert(t("alert.authRequired"), t("alert.pleaseSignInFirst"));
       return;
     }
 
@@ -473,7 +548,7 @@ export function FeedScreen({ navigation }: Props) {
     setActionLoading((prev) => ({ ...prev, [itemId]: false }));
 
     if (error) {
-      Alert.alert("Bookmark Error", error.message);
+      Alert.alert(t("alert.bookmarkError"), error.message);
       return;
     }
 
@@ -489,16 +564,252 @@ export function FeedScreen({ navigation }: Props) {
     );
   };
 
-  const handleShare = async (item: Item) => {
+  const handleUrlShare = async (item: Item) => {
     const shareUrl = `https://eoynx.com/i/${item.id}`;
+    const shareText = `${item.title}\n${shareUrl}`;
     try {
       await Share.share({
-        message: `${item.title}\n${shareUrl}`,
+        message: shareText,
         url: shareUrl,
       });
-    } catch {
-      Alert.alert("Share Error", "Could not open share dialog.");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : t("common.unknownError");
+      Alert.alert(t("alert.shareError"), message);
     }
+  };
+
+  const handleDmShare = (item: Item) => {
+    void (async () => {
+      let uid = userId;
+      if (!uid) {
+        const { data: authData } = await supabase.auth.getUser();
+        uid = authData.user?.id ?? null;
+        if (uid) setUserId(uid);
+      }
+      if (!uid) {
+        Alert.alert(t("alert.authRequired"), t("alert.pleaseSignInFirst"));
+        return;
+      }
+
+      setShareFollowersLoading(true);
+      const { data: followerRows, error: followerError } = await supabase
+        .from("followers")
+        .select("follower_id")
+        .eq("following_id", uid)
+        .limit(200);
+
+      if (followerError) {
+        setShareFollowersLoading(false);
+        Alert.alert(t("alert.shareError"), followerError.message);
+        return;
+      }
+
+      const followerIds = Array.from(
+        new Set((followerRows ?? []).map((row) => row.follower_id).filter((id): id is string => typeof id === "string"))
+      );
+
+      if (followerIds.length === 0) {
+        setShareFollowersLoading(false);
+        Alert.alert(t("alert.noFollowersTitle"), t("alert.noFollowersBody"));
+        return;
+      }
+
+      const { data: profiles, error: profilesError } = await supabase
+        .from("profiles")
+        .select("id,handle,display_name,avatar_url")
+        .in("id", followerIds);
+
+      setShareFollowersLoading(false);
+      if (profilesError) {
+        Alert.alert(t("alert.shareError"), profilesError.message);
+        return;
+      }
+
+      const candidates = ((profiles ?? []) as ShareFollower[])
+        .filter((p) => p.id !== uid)
+        .sort((a, b) => (a.handle ?? "").localeCompare(b.handle ?? ""));
+
+      if (candidates.length === 0) {
+        Alert.alert(t("alert.noFollowersTitle"), t("alert.noFollowersBody"));
+        return;
+      }
+
+      setDmShareItem(item);
+      setShareFollowers(candidates);
+      setShareFollowersVisible(true);
+    })();
+  };
+
+  const shareItemToFollower = async (target: ShareFollower) => {
+    if (!dmShareItem) return;
+    let uid = userId;
+    if (!uid) {
+      const { data: authData } = await supabase.auth.getUser();
+      uid = authData.user?.id ?? null;
+      if (uid) setUserId(uid);
+    }
+    if (!uid) {
+      Alert.alert(t("alert.authRequired"), t("alert.pleaseSignInFirst"));
+      return;
+    }
+
+    setShareSendingToId(target.id);
+    const [one, two] = uid < target.id ? [uid, target.id] : [target.id, uid];
+
+    const existing = await supabase
+      .from("dm_threads")
+      .select("id,room_key")
+      .eq("participant1_id", one)
+      .eq("participant2_id", two)
+      .maybeSingle();
+
+    if (existing.error) {
+      setShareSendingToId(null);
+      Alert.alert(t("alert.shareError"), existing.error.message);
+      return;
+    }
+
+    let threadId = existing.data?.id ?? null;
+    let roomKey = existing.data?.room_key ?? null;
+
+    if (!threadId) {
+      const generatedRoomKey = await generateSimpleRoomKey();
+      const created = await supabase
+        .from("dm_threads")
+        .insert({
+          participant1_id: one,
+          participant2_id: two,
+          last_message_at: new Date().toISOString(),
+          room_key: generatedRoomKey,
+        })
+        .select("id,room_key")
+        .single();
+
+      if (created.error || !created.data) {
+        setShareSendingToId(null);
+        Alert.alert(t("alert.shareError"), created.error?.message ?? t("common.unknownError"));
+        return;
+      }
+      threadId = created.data.id;
+      roomKey = created.data.room_key ?? generatedRoomKey ?? null;
+    }
+
+    const shareUrl = `https://eoynx.com/i/${dmShareItem.id}`;
+
+    // Web 정책과 동일: 상대가 DM 요청 수락 전이면 메시지 전송 차단
+    const { data: pendingBetween } = await supabase
+      .from("dm_requests")
+      .select("id,status")
+      .eq("status", "pending")
+      .or(`and(from_user_id.eq.${uid},to_user_id.eq.${target.id}),and(from_user_id.eq.${target.id},to_user_id.eq.${uid})`)
+      .limit(1)
+      .maybeSingle();
+
+    if (pendingBetween?.id) {
+      setShareSendingToId(null);
+      Alert.alert(t("alert.dmRequestPending"), t("alert.dmRequestPendingBody"));
+      return;
+    }
+
+    const { data: recipientProfile } = await supabase
+      .from("profiles")
+      .select("dm_open")
+      .eq("id", target.id)
+      .maybeSingle();
+
+    const recipientOpen = recipientProfile?.dm_open ?? true;
+    if (!recipientOpen) {
+      const { data: requestStatus } = await supabase
+        .from("dm_requests")
+        .select("id,status")
+        .eq("from_user_id", uid)
+        .eq("to_user_id", target.id)
+        .maybeSingle();
+
+      if (requestStatus?.status !== "accepted") {
+        if (requestStatus?.id) {
+          await supabase
+            .from("dm_requests")
+            .update({ status: "pending", thread_id: threadId })
+            .eq("id", requestStatus.id);
+        } else {
+          await supabase
+            .from("dm_requests")
+            .insert({
+              from_user_id: uid,
+              to_user_id: target.id,
+              thread_id: threadId,
+            });
+        }
+
+        setShareSendingToId(null);
+        Alert.alert(t("alert.dmRequestSent"), t("alert.dmRequestSentBody"));
+        return;
+      }
+    }
+
+    const shareText = `피드를 공유했습니다\n${dmShareItem.title}\n${shareUrl}`;
+    let insertPayload:
+      | {
+          thread_id: string;
+          sender_id: string;
+          encrypted_content: string;
+          iv: string;
+          is_encrypted: true;
+        }
+      | {
+          thread_id: string;
+          sender_id: string;
+          encrypted_content: string;
+          is_encrypted: false;
+        };
+
+    if (roomKey) {
+      const imported = await importRoomKey(roomKey);
+      const encrypted = imported ? await encryptWithRoomKey(imported, shareText) : null;
+      if (encrypted) {
+        insertPayload = {
+          thread_id: threadId,
+          sender_id: uid,
+          encrypted_content: encrypted.encryptedContent,
+          iv: encrypted.iv,
+          is_encrypted: true,
+        };
+      } else {
+        insertPayload = {
+          thread_id: threadId,
+          sender_id: uid,
+          encrypted_content: shareText,
+          is_encrypted: false,
+        };
+      }
+    } else {
+      insertPayload = {
+        thread_id: threadId,
+        sender_id: uid,
+        encrypted_content: shareText,
+        is_encrypted: false,
+      };
+    }
+
+    const { error: insertError } = await supabase.from("dm_messages").insert(insertPayload);
+    if (insertError) {
+      setShareSendingToId(null);
+      Alert.alert(t("alert.shareError"), insertError.message);
+      return;
+    }
+
+    await supabase.from("dm_threads").update({ last_message_at: new Date().toISOString() }).eq("id", threadId);
+
+    setShareSendingToId(null);
+    setShareFollowersVisible(false);
+    setDmShareItem(null);
+    navigation.navigate("DMThread", {
+      threadId,
+      otherHandle: target.handle,
+      otherName: target.display_name,
+      otherAvatarUrl: target.avatar_url,
+    });
   };
 
   const submitItemReport = async (
@@ -507,7 +818,7 @@ export function FeedScreen({ navigation }: Props) {
     description: string
   ): Promise<{ ok: boolean; error?: string }> => {
     if (!userId) {
-      return { ok: false, error: "Please sign in first." };
+      return { ok: false, error: t("alert.pleaseSignInFirst") };
     }
 
     const { error } = await supabase.from("reports").insert({
@@ -524,13 +835,34 @@ export function FeedScreen({ navigation }: Props) {
     return { ok: true };
   };
 
+  const submitCommentReport = async (
+    reason: ReportReason,
+    description: string
+  ): Promise<{ ok: boolean; error?: string }> => {
+    if (!userId || !reportTargetComment) {
+      return { ok: false, error: t("alert.pleaseSignInFirst") };
+    }
+
+    const { error } = await supabase.from("reports").insert({
+      reporter_id: userId,
+      reported_comment_id: reportTargetComment.id,
+      reason,
+      description: description || null,
+    });
+
+    if (error) {
+      return { ok: false, error: error.message };
+    }
+    return { ok: true };
+  };
+
   const blockUser = async (blockedId: string) => {
     if (!userId) {
-      Alert.alert("Auth Required", "Please sign in first.");
+      Alert.alert(t("alert.authRequired"), t("alert.pleaseSignInFirst"));
       return;
     }
     if (blockedId === userId) {
-      Alert.alert("Block Error", "You cannot block yourself.");
+      Alert.alert(t("alert.blockError"), t("alert.blockSelf"));
       return;
     }
 
@@ -541,27 +873,27 @@ export function FeedScreen({ navigation }: Props) {
 
     if (error) {
       if (error.code === "23505") {
-        Alert.alert("Blocked", "This user is already blocked.");
+        Alert.alert(t("alert.blocked"), t("alert.alreadyBlocked"));
         return;
       }
-      Alert.alert("Block Error", error.message);
+      Alert.alert(t("alert.blockError"), error.message);
       return;
     }
 
-    Alert.alert("Blocked", "User has been blocked.");
+    Alert.alert(t("alert.blocked"), t("alert.userBlocked"));
   };
 
   const handleOpenMoreMenu = (item: Item) => {
-    Alert.alert("Item Menu", `@${item.owner.handle}`, [
+    Alert.alert(t("alert.itemMenu"), `@${item.owner.handle}`, [
       {
-        text: "Report",
+        text: t("feed.report"),
         onPress: () => setReportTargetItem(item),
       },
       {
-        text: "Block User",
+        text: t("feed.blockUser"),
         onPress: () => void blockUser(item.owner_id),
       },
-      { text: "Cancel", style: "cancel" },
+      { text: t("common.cancel"), style: "cancel" },
     ]);
   };
 
@@ -570,8 +902,263 @@ export function FeedScreen({ navigation }: Props) {
     parentNav?.navigate("Add", { screen: "AddItemHome", params: { editItem: item } });
   };
 
+  const formatCommentTime = (dateString: string) => {
+    const date = new Date(dateString);
+    const now = new Date();
+    const diff = now.getTime() - date.getTime();
+    const minutes = Math.floor(diff / 60000);
+    const hours = Math.floor(diff / 3600000);
+    const days = Math.floor(diff / 86400000);
+    if (minutes < 1) return "now";
+    if (minutes < 60) return `${minutes}m`;
+    if (hours < 24) return `${hours}h`;
+    if (days < 7) return `${days}d`;
+    return `${date.getMonth() + 1}/${date.getDate()}`;
+  };
+
+  const loadCommentsForItem = async (itemId: string) => {
+    setCommentsLoadingByItem((prev) => ({ ...prev, [itemId]: true }));
+
+    let rows: FeedCommentRow[] = [];
+    const withParentRes = await supabase
+      .from("comments")
+      .select("id,item_id,user_id,content,created_at,parent_id")
+      .eq("item_id", itemId)
+      .order("created_at", { ascending: true });
+
+    if (withParentRes.error && withParentRes.error.message.toLowerCase().includes("parent_id")) {
+      const fallbackRes = await supabase
+        .from("comments")
+        .select("id,item_id,user_id,content,created_at")
+        .eq("item_id", itemId)
+        .order("created_at", { ascending: true });
+      if (fallbackRes.error) {
+        setCommentsLoadingByItem((prev) => ({ ...prev, [itemId]: false }));
+        Alert.alert(t("alert.commentLoadError"), fallbackRes.error.message);
+        return;
+      }
+      rows = (fallbackRes.data ?? []).map((row) => ({ ...row, parent_id: null })) as FeedCommentRow[];
+    } else if (withParentRes.error) {
+      setCommentsLoadingByItem((prev) => ({ ...prev, [itemId]: false }));
+      Alert.alert(t("alert.commentLoadError"), withParentRes.error.message);
+      return;
+    } else {
+      rows = (withParentRes.data ?? []) as FeedCommentRow[];
+    }
+
+    const userIds = Array.from(new Set(rows.map((row) => row.user_id)));
+    const commentIds = rows.map((row) => row.id);
+    const [profilesRes, likesRes] = await Promise.all([
+      userIds.length > 0
+        ? supabase.from("profiles").select("id,handle,display_name,avatar_url").in("id", userIds)
+        : Promise.resolve({ data: [], error: null }),
+      commentIds.length > 0
+        ? supabase.from("comment_likes").select("comment_id,user_id").in("comment_id", commentIds)
+        : Promise.resolve({ data: [], error: null }),
+    ]);
+
+    setCommentsLoadingByItem((prev) => ({ ...prev, [itemId]: false }));
+    if (profilesRes.error || likesRes.error) {
+      Alert.alert(t("alert.commentLoadError"), profilesRes.error?.message ?? likesRes.error?.message ?? t("common.unknownError"));
+      return;
+    }
+
+    const profileMap = new Map(
+      (profilesRes.data ?? []).map((profile) => [profile.id, profile])
+    );
+
+    const likeCountByComment = new Map<string, number>();
+    const likedByMe = new Set<string>();
+    for (const like of likesRes.data ?? []) {
+      likeCountByComment.set(like.comment_id, (likeCountByComment.get(like.comment_id) ?? 0) + 1);
+      if (userId && like.user_id === userId) likedByMe.add(like.comment_id);
+    }
+
+    const mapped: FeedCommentView[] = rows.map((row) => {
+      const p = profileMap.get(row.user_id);
+      return {
+        ...row,
+        like_count: likeCountByComment.get(row.id) ?? 0,
+        is_liked: likedByMe.has(row.id),
+        user: {
+          id: row.user_id,
+          handle: p?.handle ?? "unknown",
+          display_name: p?.display_name ?? null,
+          avatar_url: p?.avatar_url ?? null,
+        },
+      };
+    });
+
+    setCommentsByItem((prev) => ({ ...prev, [itemId]: mapped }));
+  };
+
+  const handleToggleCommentLike = async (itemId: string, commentId: string, isLiked: boolean) => {
+    if (!userId) {
+      Alert.alert(t("alert.authRequired"), t("alert.pleaseSignInFirst"));
+      return;
+    }
+    setCommentLikeLoadingById((prev) => ({ ...prev, [commentId]: true }));
+    const { error } = isLiked
+      ? await supabase.from("comment_likes").delete().eq("comment_id", commentId).eq("user_id", userId)
+      : await supabase.from("comment_likes").insert({ comment_id: commentId, user_id: userId });
+    setCommentLikeLoadingById((prev) => ({ ...prev, [commentId]: false }));
+    if (error) {
+      Alert.alert(t("alert.commentLikeError"), error.message);
+      return;
+    }
+
+    setCommentsByItem((prev) => ({
+      ...prev,
+      [itemId]: (prev[itemId] ?? []).map((comment) =>
+        comment.id === commentId
+          ? {
+              ...comment,
+              is_liked: !isLiked,
+              like_count: isLiked ? Math.max(0, comment.like_count - 1) : comment.like_count + 1,
+            }
+          : comment
+      ),
+    }));
+  };
+
+  const handleSubmitComment = async (item: Item) => {
+    if (!userId) {
+      Alert.alert(t("alert.authRequired"), t("alert.pleaseSignInFirst"));
+      return;
+    }
+    const itemId = item.id;
+    const content = (commentDraftByItem[itemId] ?? "").trim();
+    if (!content) return;
+
+    const replyTarget = replyToCommentByItem[itemId] ?? null;
+    setCommentActionLoadingByItem((prev) => ({ ...prev, [itemId]: true }));
+
+    let insertRes = await supabase.from("comments").insert({
+      item_id: itemId,
+      user_id: userId,
+      content,
+      parent_id: replyTarget?.id ?? null,
+    });
+
+    if (insertRes.error && insertRes.error.message.toLowerCase().includes("parent_id")) {
+      const fallbackContent = replyTarget ? `@${replyTarget.user.handle} ${content}` : content;
+      insertRes = await supabase.from("comments").insert({
+        item_id: itemId,
+        user_id: userId,
+        content: fallbackContent,
+      });
+    }
+
+    setCommentActionLoadingByItem((prev) => ({ ...prev, [itemId]: false }));
+    if (insertRes.error) {
+      Alert.alert(t("alert.commentError"), insertRes.error.message);
+      return;
+    }
+
+    setCommentDraftByItem((prev) => ({ ...prev, [itemId]: "" }));
+    setReplyToCommentByItem((prev) => ({ ...prev, [itemId]: null }));
+    setItems((prev) => prev.map((entry) => (entry.id === itemId ? { ...entry, comment_count: (entry.comment_count ?? 0) + 1 } : entry)));
+    await loadCommentsForItem(itemId);
+  };
+
+  const startEditComment = (itemId: string, comment: FeedCommentView) => {
+    setEditingCommentIdByItem((prev) => ({ ...prev, [itemId]: comment.id }));
+    setEditingCommentDraftByItem((prev) => ({ ...prev, [itemId]: comment.content }));
+  };
+
+  const cancelEditComment = (itemId: string) => {
+    setEditingCommentIdByItem((prev) => ({ ...prev, [itemId]: null }));
+    setEditingCommentDraftByItem((prev) => ({ ...prev, [itemId]: "" }));
+  };
+
+  const submitEditComment = async (itemId: string, commentId: string) => {
+    if (!userId) {
+      Alert.alert(t("alert.authRequired"), t("alert.pleaseSignInFirst"));
+      return;
+    }
+    const nextContent = (editingCommentDraftByItem[itemId] ?? "").trim();
+    if (!nextContent) return;
+
+    setCommentMutatingById((prev) => ({ ...prev, [commentId]: true }));
+    const { error } = await supabase
+      .from("comments")
+      .update({ content: nextContent })
+      .eq("id", commentId)
+      .eq("user_id", userId);
+    setCommentMutatingById((prev) => ({ ...prev, [commentId]: false }));
+
+    if (error) {
+      Alert.alert(t("alert.commentEditError"), error.message);
+      return;
+    }
+
+    setCommentsByItem((prev) => ({
+      ...prev,
+      [itemId]: (prev[itemId] ?? []).map((comment) =>
+        comment.id === commentId ? { ...comment, content: nextContent } : comment
+      ),
+    }));
+    cancelEditComment(itemId);
+  };
+
+  const handleDeleteComment = async (item: Item, comment: FeedCommentView) => {
+    if (!userId) {
+      Alert.alert(t("alert.authRequired"), t("alert.pleaseSignInFirst"));
+      return;
+    }
+
+    const canDelete = comment.user.id === userId || item.owner_id === userId;
+    if (!canDelete) {
+      Alert.alert(t("alert.deleteError"), t("feed.noDeletePermission"));
+      return;
+    }
+
+    setCommentMutatingById((prev) => ({ ...prev, [comment.id]: true }));
+    const { error } = await supabase.rpc("delete_comment_with_policy", {
+      p_comment_id: comment.id,
+    });
+    setCommentMutatingById((prev) => ({ ...prev, [comment.id]: false }));
+    if (error) {
+      Alert.alert(t("alert.commentDeleteError"), error.message);
+      return;
+    }
+
+    await loadCommentsForItem(item.id);
+    const { count } = await supabase
+      .from("comments")
+      .select("id", { count: "exact", head: true })
+      .eq("item_id", item.id);
+    setItems((prevItems) =>
+      prevItems.map((entry) =>
+        entry.id === item.id
+          ? { ...entry, comment_count: count ?? entry.comment_count }
+          : entry
+      )
+    );
+
+    if (replyToCommentByItem[item.id]?.id === comment.id) {
+      setReplyToCommentByItem((prev) => ({ ...prev, [item.id]: null }));
+    }
+    if (editingCommentIdByItem[item.id] === comment.id) {
+      cancelEditComment(item.id);
+    }
+  };
+
+  const openCommentUserProfile = (comment: FeedCommentView) => {
+    navigation.navigate("UserProfile", {
+      ownerId: comment.user.id,
+      handle: comment.user.handle,
+    });
+  };
+
   const toggleExpanded = (itemId: string) => {
-    setExpandedItemId((prev) => (prev === itemId ? null : itemId));
+    setExpandedItemId((prev) => {
+      const next = prev === itemId ? null : itemId;
+      if (next && !commentsByItem[itemId]) {
+        void loadCommentsForItem(itemId);
+      }
+      return next;
+    });
   };
 
   const openImageViewer = (uri: string) => {
@@ -593,7 +1180,12 @@ export function FeedScreen({ navigation }: Props) {
   return (
     <View style={styles.container}>
       <View style={styles.header}>
-        <Text style={styles.title}>{t("feed.title")}</Text>
+        <Image
+          accessibilityLabel={t("feed.title")}
+          resizeMode="contain"
+          source={resolvedTheme === "dark" ? LOGO_DARK : LOGO_LIGHT}
+          style={styles.headerLogo}
+        />
         <View style={styles.topRightActions}>
           <Pressable
             accessibilityLabel="DM"
@@ -645,7 +1237,7 @@ export function FeedScreen({ navigation }: Props) {
         data={items}
         keyExtractor={(item) => item.id}
         ListFooterComponent={loadingMore ? <ActivityIndicator style={styles.loader} /> : null}
-        ListEmptyComponent={<Text style={styles.emptyText}>No items found.</Text>}
+        ListEmptyComponent={<Text style={styles.emptyText}>{t("feed.emptyItems")}</Text>}
         onEndReached={loadMore}
         onEndReachedThreshold={0.4}
         refreshControl={<RefreshControl onRefresh={onRefresh} refreshing={refreshing} />}
@@ -690,12 +1282,12 @@ export function FeedScreen({ navigation }: Props) {
                       })
                     }
                   >
-                    <Text style={styles.viewProfile}>View Profile</Text>
+                    <Text style={styles.viewProfile}>{t("feed.viewProfile")}</Text>
                   </Pressable>
                 ) : null}
                 {isOwnItem ? (
                   <Pressable onPress={() => handleEditItem(item)}>
-                    <Text style={styles.viewProfile}>Edit</Text>
+                    <Text style={styles.viewProfile}>{t("feed.edit")}</Text>
                   </Pressable>
                 ) : null}
                 {canShowViewProfile ? (
@@ -739,7 +1331,7 @@ export function FeedScreen({ navigation }: Props) {
                 </ScrollView>
               ) : (
                 <View style={styles.imageFallback}>
-                  <Text style={styles.imageFallbackText}>No image</Text>
+                  <Text style={styles.imageFallbackText}>{t("feed.noImage")}</Text>
                 </View>
               )}
               {cardImages.length > 1 ? (
@@ -782,7 +1374,7 @@ export function FeedScreen({ navigation }: Props) {
                 <Text style={styles.actionIcon}>💬</Text>
                 <Text style={styles.actionText}>{item.comment_count ?? 0}</Text>
               </Pressable>
-              <Pressable onPress={() => void handleShare(item)} style={styles.actionButton}>
+              <Pressable onPress={() => setShareItem(item)} style={styles.actionButton}>
                 <ShareActionIcon />
               </Pressable>
               <View style={styles.actionRowSpacer} />
@@ -794,9 +1386,250 @@ export function FeedScreen({ navigation }: Props) {
                 <BookmarkActionIcon active={Boolean(item.bookmarked)} />
               </Pressable>
             </View>
-            {isExpanded && item.comment_preview && item.comment_preview.length > 0 ? (
+            {isExpanded ? (
               <View style={styles.commentPreviewWrap}>
-                {item.comment_preview.map((comment) => (
+                {replyToCommentByItem[item.id] ? (
+                  <View style={styles.replyingRow}>
+                    <Text style={styles.replyingText}>
+                      {t("feed.replyingTo", { handle: replyToCommentByItem[item.id]?.user.handle ?? "" })}
+                    </Text>
+                    <Pressable
+                      onPress={() =>
+                        setReplyToCommentByItem((prev) => ({
+                          ...prev,
+                          [item.id]: null,
+                        }))
+                      }
+                    >
+                      <Text style={styles.replyCancelText}>{t("common.cancel")}</Text>
+                    </Pressable>
+                  </View>
+                ) : null}
+                <View style={styles.commentComposerRow}>
+                  <TextInput
+                    multiline
+                    onChangeText={(value) => setCommentDraftByItem((prev) => ({ ...prev, [item.id]: value }))}
+                    placeholder={t("feed.writeComment")}
+                    placeholderTextColor={webUi.color.placeholder}
+                    style={styles.commentComposerInput}
+                    value={commentDraftByItem[item.id] ?? ""}
+                  />
+                  <Pressable
+                    disabled={Boolean(commentActionLoadingByItem[item.id])}
+                    onPress={() => void handleSubmitComment(item)}
+                    style={styles.commentComposerButton}
+                  >
+                    <Text style={styles.commentComposerButtonText}>
+                      {commentActionLoadingByItem[item.id] ? "..." : t("feed.post")}
+                    </Text>
+                  </Pressable>
+                </View>
+
+                {commentsLoadingByItem[item.id] ? <ActivityIndicator style={styles.loader} /> : null}
+
+                {(commentsByItem[item.id] ?? []).filter((comment) => !comment.parent_id).map((comment) => {
+                  const replies = (commentsByItem[item.id] ?? []).filter((entry) => entry.parent_id === comment.id);
+                  const isEditing = editingCommentIdByItem[item.id] === comment.id;
+                  const deleted = isDeletedComment(comment.content);
+                  const canDelete = !deleted && userId != null && (comment.user.id === userId || item.owner_id === userId);
+                  const canEdit = !deleted && userId != null && comment.user.id === userId;
+                  return (
+                    <View key={comment.id} style={styles.commentListItem}>
+                      <View style={styles.commentTopRow}>
+                        <Pressable onPress={() => openCommentUserProfile(comment)}>
+                          <Text style={styles.commentPreviewAuthor}>@{comment.user.handle}</Text>
+                        </Pressable>
+                        <Text style={styles.commentTimeText}>{formatCommentTime(comment.created_at)}</Text>
+                      </View>
+                      {isEditing ? (
+                        <View style={styles.commentEditRow}>
+                          <TextInput
+                            multiline
+                            onChangeText={(value) =>
+                              setEditingCommentDraftByItem((prev) => ({
+                                ...prev,
+                                [item.id]: value,
+                              }))
+                            }
+                            placeholder={t("feed.editComment")}
+                            placeholderTextColor={webUi.color.placeholder}
+                            style={styles.commentEditInput}
+                            value={editingCommentDraftByItem[item.id] ?? ""}
+                          />
+                          <View style={styles.commentEditActionRow}>
+                            <Pressable
+                              disabled={Boolean(commentMutatingById[comment.id])}
+                              onPress={() => cancelEditComment(item.id)}
+                            >
+                              <Text style={styles.commentReplyText}>{t("common.cancel")}</Text>
+                            </Pressable>
+                            <Pressable
+                              disabled={Boolean(commentMutatingById[comment.id])}
+                              onPress={() => void submitEditComment(item.id, comment.id)}
+                            >
+                              <Text style={styles.commentLikeTextActive}>
+                                {commentMutatingById[comment.id] ? "..." : t("feed.save")}
+                              </Text>
+                            </Pressable>
+                          </View>
+                        </View>
+                      ) : (
+                        <Text style={styles.commentPreviewText}>{getCommentDisplayContent(comment.content)}</Text>
+                      )}
+                      <View style={styles.commentActionRow}>
+                        <Pressable
+                          disabled={Boolean(commentLikeLoadingById[comment.id])}
+                          onPress={() => void handleToggleCommentLike(item.id, comment.id, comment.is_liked)}
+                        >
+                          <Text style={[styles.commentLikeText, comment.is_liked ? styles.commentLikeTextActive : null]}>
+                            ♥ {comment.like_count}
+                          </Text>
+                        </Pressable>
+                        {!deleted ? (
+                          <Pressable
+                            onPress={() =>
+                              setReplyToCommentByItem((prev) => ({
+                                ...prev,
+                                [item.id]: comment,
+                              }))
+                            }
+                          >
+                            <Text style={styles.commentReplyText}>{t("feed.reply")}</Text>
+                          </Pressable>
+                        ) : null}
+                        {canEdit ? (
+                          <Pressable onPress={() => startEditComment(item.id, comment)}>
+                            <Text style={styles.commentReplyText}>{t("feed.edit")}</Text>
+                          </Pressable>
+                        ) : null}
+                        {canDelete ? (
+                          <Pressable
+                            disabled={Boolean(commentMutatingById[comment.id])}
+                            onPress={() => void handleDeleteComment(item, comment)}
+                          >
+                            <Text style={styles.commentDeleteText}>
+                              {commentMutatingById[comment.id] ? "..." : t("feed.delete")}
+                            </Text>
+                          </Pressable>
+                        ) : null}
+                        {userId != null && userId !== comment.user.id ? (
+                          <Pressable
+                            onPress={() =>
+                              setReportTargetComment({
+                                id: comment.id,
+                                handle: comment.user.handle,
+                              })
+                            }
+                          >
+                            <Text style={styles.commentReplyText}>{t("feed.report")}</Text>
+                          </Pressable>
+                        ) : null}
+                      </View>
+
+                      {replies.map((reply) => (
+                        (() => {
+                          const isEditingReply = editingCommentIdByItem[item.id] === reply.id;
+                          const replyDeleted = isDeletedComment(reply.content);
+                          return (
+                            <View key={reply.id} style={styles.replyThreadRow}>
+                              <Text style={styles.replyArrow}>↳</Text>
+                              <View style={styles.replyListItem}>
+                                <View style={styles.commentTopRow}>
+                                  <Pressable onPress={() => openCommentUserProfile(reply)}>
+                                    <Text style={styles.commentPreviewAuthor}>@{reply.user.handle}</Text>
+                                  </Pressable>
+                                  <Text style={styles.commentTimeText}>{formatCommentTime(reply.created_at)}</Text>
+                                </View>
+                                {isEditingReply ? (
+                                  <View style={styles.commentEditRow}>
+                                    <TextInput
+                                      multiline
+                                      onChangeText={(value) =>
+                                        setEditingCommentDraftByItem((prev) => ({
+                                          ...prev,
+                                          [item.id]: value,
+                                        }))
+                                      }
+                                      placeholder={t("feed.editReply")}
+                                      placeholderTextColor={webUi.color.placeholder}
+                                      style={styles.commentEditInput}
+                                      value={editingCommentDraftByItem[item.id] ?? ""}
+                                    />
+                                    <View style={styles.commentEditActionRow}>
+                                      <Pressable
+                                        disabled={Boolean(commentMutatingById[reply.id])}
+                                        onPress={() => cancelEditComment(item.id)}
+                                      >
+                                        <Text style={styles.commentReplyText}>{t("common.cancel")}</Text>
+                                      </Pressable>
+                                      <Pressable
+                                        disabled={Boolean(commentMutatingById[reply.id])}
+                                        onPress={() => void submitEditComment(item.id, reply.id)}
+                                      >
+                                        <Text style={styles.commentLikeTextActive}>
+                                          {commentMutatingById[reply.id] ? "..." : t("feed.save")}
+                                        </Text>
+                                      </Pressable>
+                                    </View>
+                                  </View>
+                                ) : (
+                                  <Text style={styles.commentPreviewText}>{getCommentDisplayContent(reply.content)}</Text>
+                                )}
+                                <View style={styles.commentActionRow}>
+                                  <Pressable
+                                    disabled={Boolean(commentLikeLoadingById[reply.id])}
+                                    onPress={() => void handleToggleCommentLike(item.id, reply.id, reply.is_liked)}
+                                  >
+                                    <Text style={[styles.commentLikeText, reply.is_liked ? styles.commentLikeTextActive : null]}>
+                                      ♥ {reply.like_count}
+                                    </Text>
+                                  </Pressable>
+                                  {userId != null && reply.user.id === userId && !replyDeleted ? (
+                                    <Pressable onPress={() => startEditComment(item.id, reply)}>
+                                      <Text style={styles.commentReplyText}>{t("feed.edit")}</Text>
+                                    </Pressable>
+                                  ) : null}
+                                  {userId != null && (reply.user.id === userId || item.owner_id === userId) && !replyDeleted ? (
+                                    <Pressable
+                                      disabled={Boolean(commentMutatingById[reply.id])}
+                                      onPress={() => void handleDeleteComment(item, reply)}
+                                    >
+                                      <Text style={styles.commentDeleteText}>
+                                        {commentMutatingById[reply.id] ? "..." : t("feed.delete")}
+                                      </Text>
+                                    </Pressable>
+                                  ) : null}
+                                  {userId != null && userId !== reply.user.id ? (
+                                    <Pressable
+                                      onPress={() =>
+                                        setReportTargetComment({
+                                          id: reply.id,
+                                          handle: reply.user.handle,
+                                        })
+                                      }
+                                    >
+                                      <Text style={styles.commentReplyText}>{t("feed.report")}</Text>
+                                    </Pressable>
+                                  ) : null}
+                                </View>
+                              </View>
+                            </View>
+                          );
+                        })()
+                      ))}
+                    </View>
+                  );
+                })}
+
+                {(commentsByItem[item.id] ?? []).length === 0 && !commentsLoadingByItem[item.id] ? (
+                  <Text style={styles.viewAllCommentsText}>{t("feed.noComments")}</Text>
+                ) : null}
+              </View>
+            ) : item.comment_preview && item.comment_preview.some((comment) => !isDeletedComment(comment.content)) ? (
+              <View style={styles.commentPreviewWrap}>
+                {item.comment_preview
+                  .filter((comment) => !isDeletedComment(comment.content))
+                  .map((comment) => (
                   <Text key={comment.id} numberOfLines={1} style={styles.commentPreviewText}>
                     <Text style={styles.commentPreviewAuthor}>
                       @{comment.user_handle}
@@ -804,11 +1637,6 @@ export function FeedScreen({ navigation }: Props) {
                     {comment.content}
                   </Text>
                 ))}
-                <Pressable onPress={() => toggleExpanded(item.id)}>
-                  <Text style={styles.viewAllCommentsText}>
-                    Hide comments
-                  </Text>
-                </Pressable>
               </View>
             ) : null}
           </View>
@@ -820,10 +1648,16 @@ export function FeedScreen({ navigation }: Props) {
         onSubmit={(reason, description) =>
           reportTargetItem
             ? submitItemReport(reportTargetItem, reason, description)
-            : Promise.resolve({ ok: false, error: "Missing report target." })
+            : Promise.resolve({ ok: false, error: t("feed.missingReportTarget") })
         }
         targetName={reportTargetItem ? `@${reportTargetItem.owner.handle}` : ""}
         visible={Boolean(reportTargetItem)}
+      />
+      <ReportModal
+        onClose={() => setReportTargetComment(null)}
+        onSubmit={submitCommentReport}
+        targetName={reportTargetComment ? `@${reportTargetComment.handle} ${t("feed.commentTargetSuffix")}` : ""}
+        visible={Boolean(reportTargetComment)}
       />
       <Modal animationType="fade" onRequestClose={closeImageViewer} transparent visible={Boolean(viewerImageUri)}>
         <View style={styles.viewerBackdrop}>
@@ -837,6 +1671,108 @@ export function FeedScreen({ navigation }: Props) {
           ) : null}
         </View>
       </Modal>
+
+      <Modal
+        animationType="slide"
+        onRequestClose={() => setShareItem(null)}
+        transparent
+        visible={Boolean(shareItem)}
+      >
+        <View style={styles.sheetBackdrop}>
+          <Pressable onPress={() => setShareItem(null)} style={styles.sheetBackdropDismiss} />
+          <View style={styles.sheetCard}>
+            <View style={styles.sheetHandle} />
+            <Text style={styles.sheetTitle}>{t("feed.share")}</Text>
+            <Pressable
+              onPress={() => {
+                const item = shareItem;
+                setShareItem(null);
+                if (item) void handleUrlShare(item);
+              }}
+              style={styles.sheetActionButton}
+            >
+              <Text style={styles.sheetActionText}>{t("feed.shareUrl")}</Text>
+            </Pressable>
+            <Pressable
+              onPress={() => {
+                const item = shareItem;
+                setShareItem(null);
+                if (item) void handleDmShare(item);
+              }}
+              style={styles.sheetActionButton}
+            >
+              <Text style={styles.sheetActionText}>{t("feed.shareToDm")}</Text>
+            </Pressable>
+            <Pressable onPress={() => setShareItem(null)} style={styles.sheetCancelButton}>
+              <Text style={styles.sheetCancelText}>{t("common.cancel")}</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal
+        animationType="slide"
+        onRequestClose={() => {
+          setShareFollowersVisible(false);
+          setDmShareItem(null);
+        }}
+        transparent
+        visible={shareFollowersVisible}
+      >
+        <View style={styles.sheetBackdrop}>
+          <Pressable
+            onPress={() => {
+              setShareFollowersVisible(false);
+              setDmShareItem(null);
+            }}
+            style={styles.sheetBackdropDismiss}
+          />
+          <View style={styles.sheetCard}>
+            <View style={styles.sheetHandle} />
+            <Text style={styles.sheetTitle}>{t("feed.selectFollower")}</Text>
+            {shareFollowersLoading ? <ActivityIndicator style={styles.loader} /> : null}
+            <FlatList
+              data={shareFollowers}
+              keyExtractor={(item) => item.id}
+              style={styles.shareFollowerList}
+              ListEmptyComponent={<Text style={styles.emptyText}>{t("feed.noFollowers")}</Text>}
+              renderItem={({ item }) => (
+                <Pressable
+                  disabled={shareSendingToId === item.id}
+                  onPress={() => void shareItemToFollower(item)}
+                  style={styles.shareFollowerRow}
+                >
+                  <View style={styles.shareFollowerAvatarWrap}>
+                    {item.avatar_url ? (
+                      <Image source={{ uri: item.avatar_url }} style={styles.shareFollowerAvatar} />
+                    ) : (
+                      <Text style={styles.shareFollowerAvatarText}>
+                        {(item.display_name ?? item.handle).slice(0, 1).toUpperCase()}
+                      </Text>
+                    )}
+                  </View>
+                  <View style={styles.shareFollowerMeta}>
+                    <Text style={styles.shareFollowerName}>{item.display_name ?? item.handle}</Text>
+                    <Text style={styles.shareFollowerHandle}>@{item.handle}</Text>
+                  </View>
+                  <Text style={styles.shareFollowerAction}>
+                    {shareSendingToId === item.id ? "..." : t("feed.send")}
+                  </Text>
+                </Pressable>
+              )}
+            />
+            <Pressable
+              onPress={() => {
+                setShareFollowersVisible(false);
+                setDmShareItem(null);
+              }}
+              style={styles.sheetCancelButton}
+            >
+              <Text style={styles.sheetCancelText}>{t("common.cancel")}</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -845,7 +1781,7 @@ const styles = StyleSheet.create({
   container: {
     alignSelf: "center",
     flex: 1,
-    gap: 12,
+    gap: webUi.layout.pageGap,
     maxWidth: webUi.layout.pageMaxWidth,
     width: "100%",
   },
@@ -865,7 +1801,7 @@ const styles = StyleSheet.create({
     paddingVertical: 7,
   },
   categoryButtonActive: {
-    backgroundColor: webUi.color.text,
+    backgroundColor: "#E5E5E5",
   },
   categoryLabel: {
     color: webUi.color.textMuted,
@@ -873,7 +1809,7 @@ const styles = StyleSheet.create({
     fontWeight: "600",
   },
   categoryLabelActive: {
-    color: webUi.color.primaryText,
+    color: "#000000",
   },
   header: {
     alignItems: "center",
@@ -882,8 +1818,12 @@ const styles = StyleSheet.create({
   },
   title: {
     color: webUi.color.text,
-    fontSize: 24,
+    fontSize: webUi.typography.pageTitle,
     fontWeight: "700",
+  },
+  headerLogo: {
+    height: 28,
+    width: 28,
   },
   iconButton: {
     alignItems: "center",
@@ -1105,6 +2045,133 @@ const styles = StyleSheet.create({
     marginTop: 2,
     paddingTop: 10,
   },
+  replyingRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginBottom: 4,
+  },
+  replyingText: {
+    color: webUi.color.textMuted,
+    fontSize: 11,
+    fontWeight: "600",
+  },
+  replyCancelText: {
+    color: webUi.color.textSecondary,
+    fontSize: 11,
+    fontWeight: "700",
+  },
+  commentComposerRow: {
+    gap: 6,
+    marginBottom: 6,
+  },
+  commentComposerInput: {
+    backgroundColor: webUi.color.surface,
+    borderColor: webUi.color.border,
+    borderRadius: webUi.radius.xl,
+    borderWidth: 1,
+    color: webUi.color.text,
+    minHeight: 72,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    textAlignVertical: "top",
+  },
+  commentComposerButton: {
+    alignItems: "center",
+    alignSelf: "flex-end",
+    backgroundColor: webUi.color.primary,
+    borderRadius: webUi.radius.xl,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+  },
+  commentComposerButtonText: {
+    color: webUi.color.primaryText,
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  commentListItem: {
+    backgroundColor: webUi.color.surfaceMuted,
+    borderColor: webUi.color.border,
+    borderRadius: webUi.radius.xl,
+    borderWidth: 1,
+    gap: 4,
+    padding: 8,
+  },
+  replyListItem: {
+    backgroundColor: webUi.color.surface,
+    borderColor: webUi.color.border,
+    borderRadius: webUi.radius.xl,
+    borderWidth: 1,
+    padding: 8,
+    flex: 1,
+  },
+  replyThreadRow: {
+    alignItems: "flex-start",
+    flexDirection: "row",
+    gap: 6,
+    marginTop: 6,
+  },
+  replyArrow: {
+    color: webUi.color.textMuted,
+    fontSize: 14,
+    fontWeight: "700",
+    lineHeight: 18,
+    marginLeft: 2,
+    marginTop: 2,
+  },
+  commentTopRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    justifyContent: "space-between",
+  },
+  commentTimeText: {
+    color: webUi.color.textMuted,
+    fontSize: 10,
+  },
+  commentActionRow: {
+    flexDirection: "row",
+    gap: 10,
+    marginTop: 2,
+  },
+  commentEditRow: {
+    gap: 6,
+    marginTop: 2,
+  },
+  commentEditInput: {
+    backgroundColor: webUi.color.surface,
+    borderColor: webUi.color.border,
+    borderRadius: webUi.radius.xl,
+    borderWidth: 1,
+    color: webUi.color.text,
+    minHeight: 64,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    textAlignVertical: "top",
+  },
+  commentEditActionRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 10,
+    justifyContent: "flex-end",
+  },
+  commentLikeText: {
+    color: webUi.color.textMuted,
+    fontSize: 11,
+    fontWeight: "600",
+  },
+  commentLikeTextActive: {
+    color: webUi.color.primary,
+  },
+  commentReplyText: {
+    color: webUi.color.textSecondary,
+    fontSize: 11,
+    fontWeight: "700",
+  },
+  commentDeleteText: {
+    color: webUi.color.danger,
+    fontSize: 11,
+    fontWeight: "700",
+  },
   commentPreviewText: {
     color: webUi.color.textSecondary,
     fontSize: 12,
@@ -1142,5 +2209,113 @@ const styles = StyleSheet.create({
   viewerImage: {
     height: "100%",
     width: "100%",
+  },
+  sheetBackdrop: {
+    backgroundColor: webUi.color.overlaySoft,
+    flex: 1,
+    justifyContent: "flex-end",
+  },
+  sheetBackdropDismiss: {
+    flex: 1,
+  },
+  sheetCard: {
+    backgroundColor: webUi.color.surface,
+    borderTopLeftRadius: webUi.radius.xxl,
+    borderTopRightRadius: webUi.radius.xxl,
+    gap: 10,
+    paddingBottom: 18,
+    paddingHorizontal: 16,
+    paddingTop: 10,
+  },
+  sheetHandle: {
+    alignSelf: "center",
+    backgroundColor: webUi.color.border,
+    borderRadius: 999,
+    height: 4,
+    marginBottom: 2,
+    width: 48,
+  },
+  sheetTitle: {
+    color: webUi.color.text,
+    fontSize: 16,
+    fontWeight: "700",
+    marginBottom: 2,
+    textAlign: "center",
+  },
+  sheetActionButton: {
+    alignItems: "center",
+    backgroundColor: webUi.color.surfaceMuted,
+    borderColor: webUi.color.border,
+    borderRadius: webUi.radius.xl,
+    borderWidth: 1,
+    paddingVertical: 12,
+  },
+  sheetActionText: {
+    color: webUi.color.text,
+    fontSize: 14,
+    fontWeight: "600",
+  },
+  sheetCancelButton: {
+    alignItems: "center",
+    borderColor: webUi.color.border,
+    borderRadius: webUi.radius.xl,
+    borderWidth: 1,
+    marginTop: 2,
+    paddingVertical: 12,
+  },
+  sheetCancelText: {
+    color: webUi.color.textMuted,
+    fontSize: 14,
+    fontWeight: "600",
+  },
+  shareFollowerList: {
+    maxHeight: 320,
+  },
+  shareFollowerRow: {
+    alignItems: "center",
+    borderColor: webUi.color.border,
+    borderRadius: webUi.radius.xl,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 10,
+    marginBottom: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 9,
+  },
+  shareFollowerAvatarWrap: {
+    alignItems: "center",
+    backgroundColor: webUi.color.surfaceMuted,
+    borderRadius: 999,
+    height: 34,
+    justifyContent: "center",
+    overflow: "hidden",
+    width: 34,
+  },
+  shareFollowerAvatar: {
+    height: "100%",
+    width: "100%",
+  },
+  shareFollowerAvatarText: {
+    color: webUi.color.textSecondary,
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  shareFollowerMeta: {
+    flex: 1,
+  },
+  shareFollowerName: {
+    color: webUi.color.text,
+    fontSize: 13,
+    fontWeight: "700",
+  },
+  shareFollowerHandle: {
+    color: webUi.color.textMuted,
+    fontSize: 11,
+    marginTop: 1,
+  },
+  shareFollowerAction: {
+    color: webUi.color.primary,
+    fontSize: 12,
+    fontWeight: "700",
   },
 });

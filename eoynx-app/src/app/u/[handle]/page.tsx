@@ -5,9 +5,11 @@ import { getTranslations } from "next-intl/server";
 import { getProfileByHandle, getProfileStats, listItemsByOwner } from "@/lib/db";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { checkIsFollowing } from "@/app/actions/social";
-import { calculateUserPercentile } from "@/app/actions/percentile";
+import { calculateUserPercentile, calculateUserDemographicPercentiles } from "@/app/actions/percentile";
 import { checkIsBlocked } from "@/app/actions/safety";
 import { ProfileClient, type ProfileItem } from "./profile-client";
+
+const BASE_URL = (process.env.NEXT_PUBLIC_SITE_URL || "https://eoynx.com").trim();
 
 type Props = {
   params: Promise<{ handle: string }>;
@@ -27,17 +29,29 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   return {
     title,
     description,
+    alternates: {
+      canonical: `/u/${handle}`,
+    },
     openGraph: {
       title,
       description,
       type: "profile",
-      url: `https://eoynx.com/u/${handle}`,
+      url: `${BASE_URL}/u/${handle}`,
       siteName: "EOYNX",
+      images: [
+        {
+          url: `${BASE_URL}/u/${handle}/opengraph-image`,
+          width: 1200,
+          height: 630,
+          alt: title,
+        },
+      ],
     },
     twitter: {
       card: "summary_large_image",
       title,
       description,
+      images: [`${BASE_URL}/u/${handle}/twitter-image`],
     },
   };
 }
@@ -67,10 +81,11 @@ export default async function ProfilePage({ params }: Props) {
     ? await checkIsBlocked(profile.id)
     : { isBlocked: false };
 
-  const [stats, { data: items }, percentileData] = await Promise.all([
+  const [stats, { data: items }, percentileData, demographicPercentiles] = await Promise.all([
     getProfileStats(profile.id),
     listItemsByOwner(profile.id),
     calculateUserPercentile(profile.id),
+    calculateUserDemographicPercentiles(profile.id),
   ]);
 
   // Map items to ProfileItem format
@@ -98,6 +113,12 @@ export default async function ProfilePage({ params }: Props) {
         followers: stats.followers,
         following: stats.following,
         rank: percentileData.overallPercentile,
+      }}
+      demographicRanking={{
+        ageGroupPercentile: demographicPercentiles.ageGroupPercentile,
+        countryPercentile: demographicPercentiles.countryPercentile,
+        ageGroupLabel: demographicPercentiles.ageGroupLabel,
+        countryCode: demographicPercentiles.countryCode,
       }}
       categoryPercentiles={percentileData.categoryPercentiles}
       items={profileItems}

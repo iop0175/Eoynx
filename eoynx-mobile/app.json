@@ -1,11 +1,11 @@
 {
   "expo": {
-    "name": "eoynx-mobile",
+    "name": "Eoynx",
     "slug": "eoynx-mobile",
     "scheme": "eoynxmobile",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/icon.png",
+    "icon": "./assets/logo-mark-icon-white-50.png",
     "userInterfaceStyle": "light",
     "splash": {
       "image": "./assets/splash-icon.png",
@@ -17,16 +17,15 @@
     },
     "android": {
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
-        "foregroundImage": "./assets/android-icon-foreground.png",
-        "backgroundImage": "./assets/android-icon-background.png",
-        "monochromeImage": "./assets/android-icon-monochrome.png"
+        "backgroundColor": "#FFFFFF",
+        "foregroundImage": "./assets/logo-mark-adaptive.png",
+        "monochromeImage": "./assets/logo-mark-white-adaptive.png"
       },
       "predictiveBackGestureEnabled": false,
       "package": "com.anonymous.eoynxmobile"
     },
     "web": {
-      "favicon": "./assets/favicon.png"
+      "favicon": "./assets/logo-mark.png"
     },
     "plugins": [
       "expo-notifications",
@@ -38,7 +37,8 @@
           "photosPermission": "Allow EOYNX to access your photos.",
           "cameraPermission": "Allow EOYNX to use your camera."
         }
-      ]
+      ],
+      "expo-video"
     ]
   }
 }

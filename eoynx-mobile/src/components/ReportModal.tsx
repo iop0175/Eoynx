@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { Modal, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { useI18n } from "../i18n";
 import { webUi } from "../theme/webUi";
 
 export type ReportReason = "spam" | "harassment" | "nsfw" | "scam" | "other";
@@ -20,13 +21,21 @@ type ReportModalProps = {
 };
 
 export function ReportModal({ visible, targetName, onClose, onSubmit }: ReportModalProps) {
+  const { t } = useI18n();
   const [reason, setReason] = useState<ReportReason>("spam");
   const [description, setDescription] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [success, setSuccess] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const title = useMemo(() => `Report: ${targetName}`, [targetName]);
+  const title = useMemo(() => t("report.title", { target: targetName }), [t, targetName]);
+  const reasonLabelMap: Record<ReportReason, string> = {
+    spam: t("report.reason.spam"),
+    harassment: t("report.reason.harassment"),
+    nsfw: t("report.reason.nsfw"),
+    scam: t("report.reason.scam"),
+    other: t("report.reason.other"),
+  };
 
   const handleSubmit = async () => {
     setError(null);
@@ -34,7 +43,7 @@ export function ReportModal({ visible, targetName, onClose, onSubmit }: ReportMo
     try {
       const result = await onSubmit(reason, description.trim());
       if (!result.ok) {
-        setError(result.error ?? "Failed to submit report.");
+        setError(result.error ?? t("report.submitFailed"));
         return;
       }
       setSuccess(true);
@@ -58,16 +67,16 @@ export function ReportModal({ visible, targetName, onClose, onSubmit }: ReportMo
         <View style={styles.container}>
           {success ? (
             <View style={styles.successWrap}>
-              <Text style={styles.successTitle}>Report submitted</Text>
-              <Text style={styles.successBody}>Thanks for helping keep the community safe.</Text>
+              <Text style={styles.successTitle}>{t("report.successTitle")}</Text>
+              <Text style={styles.successBody}>{t("report.successBody")}</Text>
               <Pressable onPress={handleClose} style={styles.submitButton}>
-                <Text style={styles.submitLabel}>Done</Text>
+                <Text style={styles.submitLabel}>{t("report.done")}</Text>
               </Pressable>
             </View>
           ) : (
             <>
               <Text style={styles.title}>{title}</Text>
-              <Text style={styles.subtitle}>Choose reason and provide extra context.</Text>
+              <Text style={styles.subtitle}>{t("report.subtitle")}</Text>
 
               <View style={styles.reasonWrap}>
                 {REPORT_REASONS.map((item) => (
@@ -77,7 +86,7 @@ export function ReportModal({ visible, targetName, onClose, onSubmit }: ReportMo
                     style={[styles.reasonChip, reason === item.key && styles.reasonChipActive]}
                   >
                     <Text style={[styles.reasonText, reason === item.key && styles.reasonTextActive]}>
-                      {item.label}
+                      {reasonLabelMap[item.key]}
                     </Text>
                   </Pressable>
                 ))}
@@ -86,7 +95,7 @@ export function ReportModal({ visible, targetName, onClose, onSubmit }: ReportMo
               <TextInput
                 multiline
                 onChangeText={setDescription}
-                placeholder="Additional details (optional)"
+                placeholder={t("report.detailsPlaceholder")}
                 placeholderTextColor={webUi.color.placeholder}
                 style={styles.input}
                 textAlignVertical="top"
@@ -97,10 +106,10 @@ export function ReportModal({ visible, targetName, onClose, onSubmit }: ReportMo
 
               <View style={styles.buttonRow}>
                 <Pressable onPress={handleClose} style={styles.cancelButton}>
-                  <Text style={styles.cancelLabel}>Cancel</Text>
+                  <Text style={styles.cancelLabel}>{t("common.cancel")}</Text>
                 </Pressable>
                 <Pressable disabled={submitting} onPress={() => void handleSubmit()} style={styles.submitButton}>
-                  <Text style={styles.submitLabel}>{submitting ? "Submitting..." : "Submit"}</Text>
+                  <Text style={styles.submitLabel}>{submitting ? t("report.submitting") : t("report.submit")}</Text>
                 </Pressable>
               </View>
             </>

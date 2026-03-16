@@ -86,11 +86,15 @@ export async function searchItems(
   const supabase = await createSupabaseServerClient();
   const sortBy = filters?.sortBy ?? "latest";
   const category = filters?.category ?? "all";
+  const selectClause =
+    sortBy === "likes"
+      ? "id,title,description,visibility,image_url,image_urls,category,created_at,brand,profiles(handle,display_name),likes:likes(count)"
+      : "id,title,description,visibility,image_url,image_urls,category,created_at,brand,profiles(handle,display_name)";
 
   // Build base query with like_count
   let dbQuery = supabase
     .from("items")
-    .select("id,title,description,visibility,image_url,image_urls,category,created_at,brand,profiles(handle,display_name),likes:likes(count)")
+    .select(selectClause)
     .or(`title.ilike.%${query}%,description.ilike.%${query}%,brand.ilike.%${query}%`)
     .eq("visibility", "public");
   
@@ -128,7 +132,8 @@ export async function searchItems(
   let items = (rawItems as any[]).map((it) => {
     // profiles can be an object or array depending on the join
     const profile = Array.isArray(it.profiles) ? it.profiles[0] : it.profiles;
-    const likeCount = Array.isArray(it.likes) ? (it.likes[0]?.count ?? 0) : 0;
+    const likeCount =
+      sortBy === "likes" && Array.isArray(it.likes) ? (it.likes[0]?.count ?? 0) : 0;
     
     return {
       id: it.id as string,

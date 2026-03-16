@@ -9,19 +9,19 @@
   },
   "home": {
     "chips": {
-      "seoFirst": "SEO 최적화",
-      "publicProfiles": "공개 프로필",
-      "shareCards": "9:16 공유 카드",
-      "verifiedValue": "검증된 가치"
+      "seoFirst": "쉽게 시작",
+      "publicProfiles": "나만의 쇼룸",
+      "shareCards": "바로 공유",
+      "verifiedValue": "신뢰 정보"
     },
     "hero": {
-      "title1": "컬렉션을 보여주세요.",
-      "title2": "인터넷이 찾아올 거예요.",
-      "description": "EOYNX는 공개 우선 럭셔리 컬렉션 커뮤니티입니다. 프로필과 아이템이 검색 엔진에 노출됩니다. 비공개 링크는 링크로만, 비공개는 완전 비공개."
+      "title1": "내 컬렉션을,",
+      "title2": "가장 멋지게 보여주세요.",
+      "description": "EOYNX는 수집품을 기록하고 공유하는 가장 쉬운 방법입니다. 사진과 스토리를 올리고, 공개 범위는 내가 원하는 대로 선택하세요."
     },
     "cta": {
-      "viewProfile": "프로필 보기",
-      "viewItem": "아이템 보기"
+      "viewProfile": "쇼룸 둘러보기",
+      "viewItem": "대표 아이템 보기"
     },
     "stats": {
       "categories": "카테고리",
@@ -36,6 +36,25 @@
     "debug": {
       "title": "Supabase 연결",
       "description": "디버그 페이지 (검색 제외). 환경 설정 확인."
+    },
+    "seo": {
+      "sectionTitle": "처음 써도 쉬운 컬렉션 경험",
+      "sectionDescription": "수집품 정리부터 공유까지 한 번에. 보는 사람은 보기 쉽고, 올리는 사람은 관리가 쉬운 흐름으로 설계했습니다.",
+      "point1Title": "사진 중심으로 깔끔하게",
+      "point1Body": "여러 장 이미지를 슬라이드로 보여주고 핵심 정보는 직관적으로 정리됩니다.",
+      "point2Title": "공개 범위는 내가 결정",
+      "point2Body": "공개, 링크공유, 비공개를 상황에 맞게 선택해 안전하게 운영할 수 있습니다.",
+      "point3Title": "공유하면 바로 이해되는 카드",
+      "point3Body": "메신저와 SNS에서 제목, 이미지, 요약이 자연스럽게 보이도록 최적화했습니다.",
+      "crawlTitle": "바로 둘러보기",
+      "crawlSearch": "아이템/사람 검색",
+      "crawlProfile": "쇼룸 예시",
+      "crawlItem": "아이템 예시",
+      "popularSearches": "카테고리 바로가기",
+      "crawlLuxury": "럭셔리 카테고리",
+      "crawlAccessories": "액세서리 카테고리",
+      "crawlCars": "자동차 카테고리",
+      "crawlRealEstate": "부동산 카테고리"
     }
   },
   "profile": {
@@ -80,7 +99,11 @@
   },
   "auth": {
     "title": "로그인",
-    "subtitle": "Google + 이메일/비밀번호"
+    "subtitle": "Google + 이메일/비밀번호",
+    "privacyConsentLabel": "개인정보 수집 및 이용에 동의합니다.",
+    "privacyConsentView": "동의서 보기",
+    "privacyConsentRequiredBadge": "(필수)",
+    "privacyConsentRequired": "개인정보 수집 및 이용 동의가 필요합니다."
   },
   "settings": {
     "title": "설정",
@@ -95,7 +118,10 @@
     "dmSettings": "DM 설정 (팔로워 전용 토글)",
     "privacy": "개인정보 + 차단",
     "signIn": "로그인",
-    "signOut": "로그아웃"
+    "signOut": "로그아웃",
+    "deleteAccount": "회원 탈퇴",
+    "deleteAccountConfirmLabel": "탈퇴하려면 아래에 DELETE를 입력하세요",
+    "deleteAccountHint": "탈퇴 시 계정 및 연결된 데이터가 삭제되며 동일 이메일로 재가입할 수 있습니다."
   },
   "notifications": {
     "title": "알림",
@@ -122,6 +148,10 @@
       "dm": "{actor}님이 메시지를 보냈습니다",
       "dmRequest": "{actor}님이 메시지 요청을 보냈습니다"
     }
+  },
+  "comments": {
+    "deletedByAuthor": "삭제된 메시지 입니다",
+    "deletedByOwner": "게시자에 의해 삭제됀 메시지 입니다"
   },
   "dm": {
     "title": "메시지",

@@ -39,6 +39,8 @@ export function ImageSlider({ images, alt }: ImageSliderProps) {
           src={images[0]}
           alt={alt}
           fill
+          priority
+          loading="eager"
           className="object-cover"
           sizes="(max-width: 768px) 100vw, 768px"
         />
@@ -54,6 +56,8 @@ export function ImageSlider({ images, alt }: ImageSliderProps) {
           src={images[currentIndex]}
           alt={`${alt} ${currentIndex + 1}`}
           fill
+          priority={currentIndex === 0}
+          loading={currentIndex === 0 ? "eager" : "lazy"}
           className="object-cover"
           sizes="(max-width: 768px) 100vw, 768px"
         />

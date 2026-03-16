@@ -22,6 +22,7 @@ type CommentRow = {
   id: string;
   item_id: string;
   user_id: string;
+  parent_id: string | null;
   content: string;
   created_at: string;
 };
@@ -31,6 +32,11 @@ type ProfileLookup = {
   handle: string;
   id: string;
 };
+
+const DELETED_COMMENT_SELF = "삭제된 메시지 입니다";
+const DELETED_COMMENT_BY_OWNER = "게시자에 의해 삭제됀 메시지 입니다";
+const isDeletedComment = (content: string) =>
+  content === DELETED_COMMENT_SELF || content === DELETED_COMMENT_BY_OWNER;
 
 export function FeedItemDetailScreen({ route, navigation }: Props) {
   const { item } = route.params;
@@ -44,6 +50,10 @@ export function FeedItemDetailScreen({ route, navigation }: Props) {
   const [comments, setComments] = useState<CommentRow[]>([]);
   const [profilesMap, setProfilesMap] = useState<Record<string, ProfileLookup>>({});
   const [commentInput, setCommentInput] = useState("");
+  const [replyParentId, setReplyParentId] = useState<string | null>(null);
+  const [replyInput, setReplyInput] = useState("");
+  const [editingCommentId, setEditingCommentId] = useState<string | null>(null);
+  const [editInput, setEditInput] = useState("");
   const [reportModalVisible, setReportModalVisible] = useState(false);
   const [sliderWidth, setSliderWidth] = useState(0);
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
@@ -75,7 +85,7 @@ export function FeedItemDetailScreen({ route, navigation }: Props) {
         : Promise.resolve({ data: null, error: null }),
       supabase
         .from("comments")
-        .select("id,item_id,user_id,content,created_at")
+        .select("id,item_id,user_id,parent_id,content,created_at")
         .eq("item_id", item.id)
         .order("created_at", { ascending: false }),
     ]);
@@ -164,8 +174,8 @@ export function FeedItemDetailScreen({ route, navigation }: Props) {
     setBookmarked((prev) => !prev);
   };
 
-  const handleAddComment = async () => {
-    const content = commentInput.trim();
+  const handleAddComment = async (parentId?: string) => {
+    const content = (parentId ? replyInput : commentInput).trim();
     if (!content) return;
     if (!userId) {
       Alert.alert("Auth Required", "Please sign in.");
@@ -177,6 +187,7 @@ export function FeedItemDetailScreen({ route, navigation }: Props) {
       content,
       item_id: item.id,
       user_id: userId,
+      parent_id: parentId ?? null,
     });
     setActionLoading(false);
 
@@ -185,14 +196,32 @@ export function FeedItemDetailScreen({ route, navigation }: Props) {
       return;
     }
 
-    setCommentInput("");
+    if (parentId) {
+      setReplyInput("");
+      setReplyParentId(null);
+    } else {
+      setCommentInput("");
+    }
     await loadDetailData();
   };
 
   const handleDeleteComment = async (commentId: string) => {
     if (!userId) return;
+
+    const target = comments.find((c) => c.id === commentId);
+    if (!target) return;
+
+    const canDeleteAsAuthor = target.user_id === userId;
+    const canDeleteAsOwner = item.owner_id === userId;
+    if (!canDeleteAsAuthor && !canDeleteAsOwner) {
+      Alert.alert("Delete Error", "You do not have permission to delete this comment.");
+      return;
+    }
+
     setActionLoading(true);
-    const { error } = await supabase.from("comments").delete().eq("id", commentId).eq("user_id", userId);
+    const { error } = await supabase.rpc("delete_comment_with_policy", {
+      p_comment_id: commentId,
+    });
     setActionLoading(false);
 
     if (error) {
@@ -200,7 +229,39 @@ export function FeedItemDetailScreen({ route, navigation }: Props) {
       return;
     }
 
-    setComments((prev) => prev.filter((c) => c.id !== commentId));
+    await loadDetailData();
+  };
+
+  const handleStartEdit = (comment: CommentRow) => {
+    setEditingCommentId(comment.id);
+    setEditInput(comment.content);
+  };
+
+  const handleCancelEdit = () => {
+    setEditingCommentId(null);
+    setEditInput("");
+  };
+
+  const handleSaveEdit = async (commentId: string) => {
+    const nextContent = editInput.trim();
+    if (!nextContent || !userId) return;
+
+    setActionLoading(true);
+    const { error } = await supabase
+      .from("comments")
+      .update({ content: nextContent })
+      .eq("id", commentId)
+      .eq("user_id", userId);
+    setActionLoading(false);
+
+    if (error) {
+      Alert.alert("Edit Error", error.message);
+      return;
+    }
+
+    setEditingCommentId(null);
+    setEditInput("");
+    await loadDetailData();
   };
 
   const submitItemReport = async (
@@ -253,6 +314,21 @@ export function FeedItemDetailScreen({ route, navigation }: Props) {
   };
 
   const commentCount = comments.length;
+  const topLevelComments = useMemo(
+    () => comments.filter((c) => !c.parent_id),
+    [comments]
+  );
+  const repliesByParent = useMemo(() => {
+    const map: Record<string, CommentRow[]> = {};
+    for (const comment of comments) {
+      if (!comment.parent_id) continue;
+      if (!map[comment.parent_id]) {
+        map[comment.parent_id] = [];
+      }
+      map[comment.parent_id].push(comment);
+    }
+    return map;
+  }, [comments]);
   const createdAtText = useMemo(() => item.created_at ?? "-", [item.created_at]);
   const itemImages = useMemo(() => {
     if (item.image_urls && item.image_urls.length > 0) {
@@ -275,6 +351,20 @@ export function FeedItemDetailScreen({ route, navigation }: Props) {
   const handleEditItem = () => {
     const parentNav = navigation.getParent<any>();
     parentNav?.navigate("Add", { screen: "AddItemHome", params: { editItem: item } });
+  };
+
+  const formatRelativeTime = (value: string) => {
+    const date = new Date(value);
+    const diffMs = Date.now() - date.getTime();
+    const minutes = Math.floor(diffMs / 60000);
+    const hours = Math.floor(diffMs / 3600000);
+    const days = Math.floor(diffMs / 86400000);
+
+    if (minutes < 1) return "방금";
+    if (minutes < 60) return `${minutes}분 전`;
+    if (hours < 24) return `${hours}시간 전`;
+    if (days < 7) return `${days}일 전`;
+    return date.toLocaleDateString("ko-KR");
   };
 
   return (
@@ -424,28 +514,149 @@ export function FeedItemDetailScreen({ route, navigation }: Props) {
             style={styles.commentInput}
             value={commentInput}
           />
-          <Pressable disabled={actionLoading} onPress={handleAddComment} style={styles.commentButton}>
+          <Pressable disabled={actionLoading} onPress={() => void handleAddComment()} style={styles.commentButton}>
             <Text style={styles.commentButtonLabel}>Post</Text>
           </Pressable>
         </View>
 
         {loading ? <ActivityIndicator /> : null}
 
-        {comments.map((comment) => {
+        {topLevelComments.map((comment) => {
           const profile = profilesMap[comment.user_id];
           const author = profile?.display_name || (profile?.handle ? `@${profile.handle}` : comment.user_id.slice(0, 8));
-          const canDelete = comment.user_id === userId;
+          const deleted = isDeletedComment(comment.content);
+          const canDelete = !deleted && (comment.user_id === userId || item.owner_id === userId);
+          const canEdit = !deleted && comment.user_id === userId;
+          const replies = repliesByParent[comment.id] ?? [];
+
           return (
             <View key={comment.id} style={styles.commentCard}>
               <View style={styles.commentHeader}>
-                <Text style={styles.commentAuthor}>{author}</Text>
-                {canDelete ? (
-                  <Pressable onPress={() => void handleDeleteComment(comment.id)}>
-                    <Text style={styles.deleteText}>Delete</Text>
-                  </Pressable>
-                ) : null}
+                <View style={styles.commentMetaRow}>
+                  <Text style={styles.commentAuthor}>{author}</Text>
+                  <Text style={styles.commentTime}>{formatRelativeTime(comment.created_at)}</Text>
+                </View>
+                <View style={styles.commentActionRow}>
+                  {userId && !deleted ? (
+                    <Pressable onPress={() => {
+                      setReplyParentId(replyParentId === comment.id ? null : comment.id);
+                      setReplyInput("");
+                    }}>
+                      <Text style={styles.replyText}>Reply</Text>
+                    </Pressable>
+                  ) : null}
+                  {canEdit ? (
+                    <Pressable onPress={() => handleStartEdit(comment)}>
+                      <Text style={styles.editText}>Edit</Text>
+                    </Pressable>
+                  ) : null}
+                  {canDelete ? (
+                    <Pressable onPress={() => void handleDeleteComment(comment.id)}>
+                      <Text style={styles.deleteText}>Delete</Text>
+                    </Pressable>
+                  ) : null}
+                </View>
               </View>
-              <Text style={styles.commentContent}>{comment.content}</Text>
+
+              {editingCommentId === comment.id ? (
+                <View style={styles.editWrap}>
+                  <TextInput
+                    multiline
+                    onChangeText={setEditInput}
+                    style={styles.replyInput}
+                    value={editInput}
+                  />
+                  <View style={styles.editActionRow}>
+                    <Pressable onPress={handleCancelEdit}>
+                      <Text style={styles.cancelText}>Cancel</Text>
+                    </Pressable>
+                    <Pressable disabled={actionLoading} onPress={() => void handleSaveEdit(comment.id)}>
+                      <Text style={styles.saveText}>Save</Text>
+                    </Pressable>
+                  </View>
+                </View>
+              ) : (
+                <Text style={styles.commentContent}>{comment.content}</Text>
+              )}
+
+              {replyParentId === comment.id ? (
+                <View style={styles.replyComposer}>
+                  <TextInput
+                    multiline
+                    onChangeText={setReplyInput}
+                    placeholder="Write a reply..."
+                    style={styles.replyInput}
+                    value={replyInput}
+                  />
+                  <View style={styles.editActionRow}>
+                    <Pressable onPress={() => {
+                      setReplyParentId(null);
+                      setReplyInput("");
+                    }}>
+                      <Text style={styles.cancelText}>Cancel</Text>
+                    </Pressable>
+                    <Pressable disabled={actionLoading} onPress={() => void handleAddComment(comment.id)}>
+                      <Text style={styles.saveText}>Reply</Text>
+                    </Pressable>
+                  </View>
+                </View>
+              ) : null}
+
+              {replies.length > 0 ? (
+                <View style={styles.replyList}>
+                  {replies.map((reply) => {
+                    const replyProfile = profilesMap[reply.user_id];
+                    const replyAuthor = replyProfile?.display_name || (replyProfile?.handle ? `@${replyProfile.handle}` : reply.user_id.slice(0, 8));
+                    const replyDeleted = isDeletedComment(reply.content);
+                    const replyCanDelete = !replyDeleted && (reply.user_id === userId || item.owner_id === userId);
+                    const replyCanEdit = !replyDeleted && reply.user_id === userId;
+
+                    return (
+                      <View key={reply.id} style={styles.replyCard}>
+                        <View style={styles.commentHeader}>
+                          <View style={styles.commentMetaRow}>
+                            <Text style={styles.commentAuthor}>{replyAuthor}</Text>
+                            <Text style={styles.commentTime}>{formatRelativeTime(reply.created_at)}</Text>
+                          </View>
+                          <View style={styles.commentActionRow}>
+                            {replyCanEdit ? (
+                              <Pressable onPress={() => handleStartEdit(reply)}>
+                                <Text style={styles.editText}>Edit</Text>
+                              </Pressable>
+                            ) : null}
+                            {replyCanDelete ? (
+                              <Pressable onPress={() => void handleDeleteComment(reply.id)}>
+                                <Text style={styles.deleteText}>Delete</Text>
+                              </Pressable>
+                            ) : null}
+                          </View>
+                        </View>
+
+                        {editingCommentId === reply.id ? (
+                          <View style={styles.editWrap}>
+                            <TextInput
+                              multiline
+                              onChangeText={setEditInput}
+                              style={styles.replyInput}
+                              value={editInput}
+                            />
+                            <View style={styles.editActionRow}>
+                              <Pressable onPress={handleCancelEdit}>
+                                <Text style={styles.cancelText}>Cancel</Text>
+                              </Pressable>
+                              <Pressable disabled={actionLoading} onPress={() => void handleSaveEdit(reply.id)}>
+                                <Text style={styles.saveText}>Save</Text>
+                              </Pressable>
+                            </View>
+                          </View>
+                        ) : (
+                          <Text style={styles.commentContent}>{reply.content}</Text>
+                        )}
+                      </View>
+                    );
+                  })}
+                </View>
+              ) : null}
             </View>
           );
         })}
@@ -463,7 +674,7 @@ export function FeedItemDetailScreen({ route, navigation }: Props) {
 const styles = StyleSheet.create({
   container: {
     alignSelf: "center",
-    gap: 12,
+    gap: webUi.layout.pageGap,
     maxWidth: webUi.layout.pageMaxWidth,
     paddingBottom: 20,
     paddingTop: 4,
@@ -662,7 +873,7 @@ const styles = StyleSheet.create({
     color: webUi.color.text,
     minHeight: 88,
     paddingHorizontal: 12,
-    paddingVertical: 10,
+    paddingVertical: webUi.layout.controlVerticalPadding,
     textAlignVertical: "top",
   },
   commentButton: {
@@ -690,18 +901,94 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-between",
   },
+  commentMetaRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    flexShrink: 1,
+    gap: 8,
+  },
+  commentActionRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 10,
+  },
   commentAuthor: {
     color: webUi.color.text,
     fontSize: 13,
     fontWeight: "700",
   },
+  commentTime: {
+    color: webUi.color.textMuted,
+    fontSize: 11,
+  },
   commentContent: {
     color: webUi.color.textSecondary,
     lineHeight: 18,
+  },
+  replyText: {
+    color: webUi.color.textMuted,
+    fontSize: 12,
+    fontWeight: "600",
+  },
+  editText: {
+    color: webUi.color.textSecondary,
+    fontSize: 12,
+    fontWeight: "600",
   },
   deleteText: {
     color: webUi.color.danger,
     fontSize: 12,
     fontWeight: "700",
+  },
+  editWrap: {
+    gap: 6,
+    marginTop: 8,
+  },
+  replyComposer: {
+    gap: 6,
+    marginTop: 8,
+  },
+  replyInput: {
+    backgroundColor: webUi.color.surface,
+    borderColor: webUi.color.border,
+    borderRadius: webUi.radius.md,
+    borderWidth: 1,
+    color: webUi.color.text,
+    minHeight: 66,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    textAlignVertical: "top",
+  },
+  editActionRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 12,
+    justifyContent: "flex-end",
+  },
+  cancelText: {
+    color: webUi.color.textMuted,
+    fontSize: 12,
+    fontWeight: "600",
+  },
+  saveText: {
+    color: webUi.color.primary,
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  replyList: {
+    borderLeftColor: webUi.color.border,
+    borderLeftWidth: 1,
+    gap: 8,
+    marginLeft: 4,
+    marginTop: 8,
+    paddingLeft: 10,
+  },
+  replyCard: {
+    backgroundColor: webUi.color.surface,
+    borderColor: webUi.color.border,
+    borderRadius: webUi.radius.md,
+    borderWidth: 1,
+    gap: 6,
+    padding: 8,
   },
 });

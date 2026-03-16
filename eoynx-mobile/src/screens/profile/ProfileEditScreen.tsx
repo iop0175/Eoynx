@@ -129,6 +129,7 @@ export function ProfileEditScreen() {
     Alert.alert("Saved", "Profile updated.");
   };
 
+
   return (
     <View style={styles.container}>
       <Text style={styles.title}>Edit Profile</Text>
@@ -184,14 +185,14 @@ const styles = StyleSheet.create({
   container: {
     alignSelf: "center",
     flex: 1,
-    gap: 12,
+    gap: webUi.layout.pageGap,
     maxWidth: webUi.layout.pageMaxWidth,
     paddingTop: 4,
     width: "100%",
   },
   title: {
     color: webUi.color.text,
-    fontSize: 26,
+    fontSize: webUi.typography.pageTitle,
     fontWeight: "700",
   },
   card: {
@@ -220,7 +221,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     color: webUi.color.text,
     paddingHorizontal: 14,
-    paddingVertical: 11,
+    paddingVertical: webUi.layout.controlVerticalPadding + 1,
   },
   textArea: {
     minHeight: 90,
@@ -231,7 +232,7 @@ const styles = StyleSheet.create({
     backgroundColor: webUi.color.primary,
     borderRadius: webUi.radius.xl,
     marginTop: 4,
-    paddingVertical: 12,
+    paddingVertical: webUi.layout.controlVerticalPadding + 2,
   },
   saveButtonLabel: {
     color: webUi.color.primaryText,
