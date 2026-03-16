@@ -36,7 +36,7 @@ jobs:
 
       - name: Install web dependencies
         working-directory: eoynx-app
-        run: npm ci
+        run: npm install
 
       - name: Run web social regression
         working-directory: eoynx-app
@@ -44,7 +44,7 @@ jobs:
 
       - name: Install mobile dependencies
         working-directory: eoynx-mobile
-        run: npm ci
+        run: npm install
 
       - name: Run mobile social regression
         working-directory: eoynx-mobile
