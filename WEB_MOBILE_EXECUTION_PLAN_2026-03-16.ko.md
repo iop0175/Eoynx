@@ -38,7 +38,7 @@
 
 남은 핵심
 - requestPolicy 잔여 경로 최종 감사 + 회귀 자동화(CI 연결)
-- 기존(과거) DM 알림/인덱스 preview 백필 또는 점진 치환 정책 정리
+- DM preview fallback 비율 모니터링 및 필요 시 선택적 백필 PoC
 - 랜딩 페이지/공유 카드/푸시(Post-MVP 진입 전 우선순위 재평가)
 
 ## 진행 현황 업데이트 (2026-03-16)
@@ -58,6 +58,7 @@
 - 웹 ShareModal DM 전송 회귀 수정 (NEXT_REDIRECT 대응 가시화, 암호화 전송 적용, 사용자 피드백 보강)
 - 모바일 FeedScreen DM 공유 requestPolicy 에러 처리 누락 보강
 - 소셜 회귀 자동 점검 스크립트 도입 (웹/모바일/루트 통합)
+- DM preview 과거 데이터 정책 확정 (점진 갱신 채택 + fallback 기준 문서화)
 
 최근 측정 요약
 - Search (실데이터, q=PERF): perf 75, LCP 8.2s, TBT 80ms, unused JS 약 292KiB
@@ -209,14 +210,14 @@
 3. [완료] Lighthouse 재현성 확보를 위한 단일 실행 스크립트 추가
 4. [완료] 웹 1단계 종료 기준 재평가 (프로덕션 기준 목표 충족)
 5. [완료] 소셜 회귀 자동 점검 CI 연결 (workflow_dispatch/PR 실행 + 시크릿 등록 + 실행 성공)
-6. [진행 예정] DM preview 과거 데이터 정책(백필 vs 점진 갱신) 확정
+6. [완료] DM preview 과거 데이터 정책 확정 (점진 갱신)
 
 ## 7) 통합 백로그 (실행용)
 
 P0
 - [ ] requestPolicy 잔여 경로 최종 감사
 - [ ] 모바일 DM 화면 저사양 기기에서 배터리/발열/스크롤 체감 재검증
-- [ ] DM preview 과거 데이터 표시 정책 확정 (백필 vs 점진 갱신)
+- [ ] DM preview fallback 비율 모니터링 지표 도입
 
 P1
 - [ ] 모바일 리스트 가상화 추가 튜닝(초기 렌더량/윈도우 사이즈 실측 기반)

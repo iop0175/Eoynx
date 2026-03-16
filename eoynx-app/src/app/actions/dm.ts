@@ -3,7 +3,8 @@
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
 import { createNotification } from "./notifications";
-import { decryptDMContent, encryptDMContent, generateDMRoomKey } from "@/lib/dmCrypto";
+import { generateDMRoomKey } from "@/lib/dmCrypto";
+import { constants, createPublicKey, publicEncrypt } from "crypto";
 
 // =====================================================
 // Utility: Generate Room Key (Server-side)
@@ -61,6 +62,19 @@ export type DMRequest = {
   status: "pending" | "accepted" | "declined";
   created_at: string;
 };
+
+function encryptRoomKeyForProfilePublicKey(publicKeyJwk: string, roomKeyBase64: string): string {
+  const keyObject = createPublicKey({ key: JSON.parse(publicKeyJwk), format: "jwk" });
+  const encrypted = publicEncrypt(
+    {
+      key: keyObject,
+      padding: constants.RSA_PKCS1_OAEP_PADDING,
+      oaepHash: "sha256",
+    },
+    Buffer.from(roomKeyBase64, "base64")
+  );
+  return encrypted.toString("base64");
+}
 
 // =====================================================
 // Set Room Encryption Key
@@ -149,15 +163,31 @@ export async function getOrCreateThread(otherUserId: string) {
 
   let finalThreadId = existingThread?.id ?? null;
   if (!finalThreadId) {
-    // 채팅방 생성 시 room_key 자동 생성
     const roomKey = generateDMRoomKey();
+
+    const { data: participantProfiles } = await supabase
+      .from("profiles")
+      .select("id, encryption_public_key")
+      .in("id", [participant1, participant2]);
+
+    const p1 = participantProfiles?.find((p) => p.id === participant1);
+    const p2 = participantProfiles?.find((p) => p.id === participant2);
+
+    const canUseEncryptedKeys = Boolean(p1?.encryption_public_key && p2?.encryption_public_key);
+    if (!canUseEncryptedKeys) {
+      return { error: "상대방 또는 내 암호화 키가 준비되지 않았습니다. 잠시 후 다시 시도해주세요" };
+    }
+
+    const encryptedKeyForP1 = encryptRoomKeyForProfilePublicKey(p1!.encryption_public_key, roomKey);
+    const encryptedKeyForP2 = encryptRoomKeyForProfilePublicKey(p2!.encryption_public_key, roomKey);
     
     const { data: newThread, error } = await supabase
       .from("dm_threads")
       .insert({
         participant1_id: participant1,
         participant2_id: participant2,
-        room_key: roomKey,
+        encrypted_key_for_p1: encryptedKeyForP1,
+        encrypted_key_for_p2: encryptedKeyForP2,
       })
       .select("id")
       .single();
@@ -237,7 +267,16 @@ export async function sendMessage(
   const supabase = await createSupabaseServerClient();
   const { data: { user } } = await supabase.auth.getUser();
 
+  console.log("[dm/sendMessage] start", {
+    threadId,
+    hasText: Boolean(content.trim()),
+    hasEncryptedData: Boolean(encryptedData),
+    hasImage: Boolean(imageUrl),
+    userId: user?.id ?? null,
+  });
+
   if (!user) {
+    console.log("[dm/sendMessage] blocked:not-authenticated", { threadId });
     return { error: "로그인이 필요합니다" };
   }
 
@@ -258,6 +297,7 @@ export async function sendMessage(
     .single();
 
   if (!thread) {
+    console.log("[dm/sendMessage] blocked:thread-not-found", { threadId, userId: user.id });
     return { error: "스레드를 찾을 수 없습니다" };
   }
 
@@ -277,6 +317,7 @@ export async function sendMessage(
     .maybeSingle();
 
   if (pendingRequest) {
+    console.log("[dm/sendMessage] blocked:pending-request", { threadId, userId: user.id });
     return { error: "상대방이 DM 요청을 수락해야 메시지를 보낼 수 있습니다" };
   }
 
@@ -291,35 +332,65 @@ export async function sendMessage(
   if (!recipientOpen) {
     const { data: requestStatus } = await supabase
       .from("dm_requests")
-      .select("status")
+      .select("id, status")
       .eq("from_user_id", user.id)
       .eq("to_user_id", recipientId)
       .maybeSingle();
 
+    if (!requestStatus) {
+      await supabase
+        .from("dm_requests")
+        .insert({
+          from_user_id: user.id,
+          to_user_id: recipientId,
+          thread_id: threadId,
+          status: "pending",
+        });
+
+      await createNotification({
+        userId: recipientId,
+        type: "dm_request",
+        actorId: user.id,
+        threadId,
+      });
+
+      console.log("[dm/sendMessage] created:request-pending", { threadId, userId: user.id });
+      return { error: "상대방에게 DM 요청을 보냈습니다. 수락 후 메시지를 보낼 수 있습니다" };
+    }
+
+    if (requestStatus?.status === "declined" && requestStatus.id) {
+      await supabase
+        .from("dm_requests")
+        .update({ status: "pending", thread_id: threadId })
+        .eq("id", requestStatus.id);
+
+      await createNotification({
+        userId: recipientId,
+        type: "dm_request",
+        actorId: user.id,
+        threadId,
+      });
+
+      console.log("[dm/sendMessage] updated:request-repending", { threadId, userId: user.id });
+      return { error: "상대방에게 DM 요청을 다시 보냈습니다. 수락 후 메시지를 보낼 수 있습니다" };
+    }
+
     if (requestStatus?.status !== "accepted") {
+      console.log("[dm/sendMessage] blocked:recipient-closed", { threadId, userId: user.id });
       return { error: "상대방이 DM 요청을 수락해야 메시지를 보낼 수 있습니다" };
     }
   }
 
   // Insert message (content 컬럼 삭제됨, encrypted_content만 사용)
-  // 암호화 안된 경우에도 encrypted_content에 저장 (서버에서 암호화)
-  let encryptedContent = encryptedData?.encryptedContent;
-  let iv = encryptedData?.iv;
-  
-  if (!encryptedData) {
-    // 암호화 안된 경우: 서버에서 암호화하여 저장 (room_key 필요)
-    const { data: thread } = await supabase
-      .from("dm_threads")
-      .select("room_key")
-      .eq("id", threadId)
-      .single();
-    
-    if (thread?.room_key) {
-      const encrypted = encryptDMContent(thread.room_key, trimmedContent);
-      encryptedContent = encrypted.encryptedContent;
-      iv = encrypted.iv;
-    }
+  // 텍스트가 있을 때만 암호화 payload가 필요하다.
+  const hasText = Boolean(trimmedContent);
+  if (hasText && !encryptedData) {
+    console.log("[dm/sendMessage] blocked:missing-encrypted-data", { threadId, userId: user.id });
+    return { error: "암호화 키 준비 중입니다. 잠시 후 다시 시도해주세요" };
   }
+
+  const encryptedContent = hasText ? (encryptedData?.encryptedContent ?? null) : null;
+  const iv = hasText ? (encryptedData?.iv ?? null) : null;
   
   const insertData = {
     thread_id: threadId,
@@ -327,7 +398,7 @@ export async function sendMessage(
     encrypted_content: encryptedContent,
     encrypted_key: encryptedData?.encryptedKey ?? null,
     iv: iv,
-    is_encrypted: true,
+    is_encrypted: hasText,
     image_url: imageUrl ?? null,
   };
 
@@ -338,22 +409,11 @@ export async function sendMessage(
     .single();
 
   if (error) {
+    console.log("[dm/sendMessage] failed:insert", { threadId, userId: user.id, error: error.message });
     return { error: error.message };
   }
 
-  // 복호화된 content 생성 (클라이언트 반환용)
-  let returnContent = "";
-  if (message.encrypted_content && message.iv) {
-    const { data: thread } = await supabase
-      .from("dm_threads")
-      .select("room_key")
-      .eq("id", threadId)
-      .single();
-    
-    if (thread?.room_key) {
-      returnContent = decryptDMContent(thread.room_key, message.encrypted_content, message.iv);
-    }
-  }
+  console.log("[dm/sendMessage] success", { threadId, userId: user.id, messageId: message.id });
 
   // Update thread's last_message_at
   await supabase
@@ -367,16 +427,19 @@ export async function sendMessage(
     type: "dm",
     actorId: user.id,
     threadId,
-    preview: returnContent?.trim() ? returnContent : imageUrl ? "Photo" : "New message",
+    preview: imageUrl
+      ? "Photo"
+      : trimmedContent
+        ? trimmedContent.slice(0, 120)
+        : "Message",
   });
 
-  revalidatePath(`/dm/${threadId}`);
-  revalidatePath("/dm");
+  // 실시간 구독으로 메시지/인박스를 반영하므로 전송마다 라우트 전체 revalidate는 생략한다.
   
   // 클라이언트에 복호화된 content로 반환
   return { 
     success: true, 
-    message: { ...message, content: returnContent } 
+    message: { ...message, content: "" } 
   };
 }
 
@@ -460,17 +523,6 @@ export async function getThreads() {
     }
   });
 
-  // Get thread room_keys for decryption
-  const { data: threadKeys } = await supabase
-    .from("dm_threads")
-    .select("id, room_key")
-    .in("id", threadIds);
-  
-  const roomKeyMap = new Map<string, string | null>();
-  threadKeys?.forEach((t) => {
-    roomKeyMap.set(t.id, t.room_key);
-  });
-
   // Get unread counts
   const { data: unreadCounts } = await supabase
     .from("dm_messages")
@@ -478,6 +530,25 @@ export async function getThreads() {
     .in("thread_id", threadIds)
     .neq("sender_id", user.id)
     .is("read_at", null);
+
+  // Use latest DM notification preview as a readable fallback for encrypted messages.
+  const { data: dmNotificationRows } = await supabase
+    .from("notifications")
+    .select("thread_id, preview, created_at")
+    .eq("user_id", user.id)
+    .eq("type", "dm")
+    .in("thread_id", threadIds)
+    .order("created_at", { ascending: false });
+
+  const dmPreviewMap = new Map<string, string>();
+  dmNotificationRows?.forEach((row) => {
+    const threadId = row.thread_id as string | null;
+    const preview = row.preview?.trim();
+    if (!threadId || !preview) return;
+    if (!dmPreviewMap.has(threadId)) {
+      dmPreviewMap.set(threadId, preview);
+    }
+  });
 
   const unreadMap = new Map<string, number>();
   unreadCounts?.forEach((m) => {
@@ -488,12 +559,11 @@ export async function getThreads() {
     const otherUserId = t.participant1_id === user.id ? t.participant2_id : t.participant1_id;
     const profile = profileMap.get(otherUserId);
     const lastMessage = lastMessageMap.get(t.id);
-    const roomKey = roomKeyMap.get(t.id);
 
-    // Decrypt last message (항상 encrypted_content에서 복호화)
+    // 안전한 미리보기 텍스트를 유지한다.
     let displayContent = "";
-    if (lastMessage?.encrypted_content && lastMessage.iv && roomKey) {
-      displayContent = decryptDMContent(roomKey, lastMessage.encrypted_content, lastMessage.iv);
+    if (lastMessage?.encrypted_content) {
+      displayContent = dmPreviewMap.get(t.id) ?? "Encrypted message";
     } else if (lastMessage?.image_url) {
       displayContent = "Photo";
     }
@@ -528,22 +598,13 @@ export async function getThreads() {
 // Get Messages for Thread
 // =====================================================
 
-export async function getMessages(threadId: string, limit = 50, offset = 0) {
+export async function getMessages(threadId: string, limit = 20, offset = 0) {
   const supabase = await createSupabaseServerClient();
   const { data: { user } } = await supabase.auth.getUser();
 
   if (!user) {
     return { messages: [] };
   }
-
-  // Get thread room_key for decryption
-  const { data: thread } = await supabase
-    .from("dm_threads")
-    .select("room_key")
-    .eq("id", threadId)
-    .single();
-
-  const roomKey = thread?.room_key;
 
   const { data: messages, error } = await supabase
     .from("dm_messages")
@@ -556,12 +617,9 @@ export async function getMessages(threadId: string, limit = 50, offset = 0) {
     return { messages: [] };
   }
 
-  // Decrypt messages server-side and generate public URLs for images
+  // 암호문을 그대로 전달한다.
   const decryptedMessages = (messages ?? []).map((m) => {
-    let content = "";
-    if (m.encrypted_content && m.iv && roomKey) {
-      content = decryptDMContent(roomKey, m.encrypted_content, m.iv);
-    }
+    const content = "";
     
     // image_url이 경로인 경우 public URL 생성
     let imageUrl = m.image_url;
@@ -612,7 +670,7 @@ export async function getThreadDetails(threadId: string) {
 
   const { data: thread } = await supabase
     .from("dm_threads")
-    .select("id, participant1_id, participant2_id, encrypted_key_for_p1, encrypted_key_for_p2, room_key")
+    .select("id, participant1_id, participant2_id, encrypted_key_for_p1, encrypted_key_for_p2")
     .eq("id", threadId)
     .single();
 
@@ -630,10 +688,39 @@ export async function getThreadDetails(threadId: string) {
     ? thread.participant2_id 
     : thread.participant1_id;
 
-  // 현재 사용자에게 맞는 암호화 키 반환
-  const myEncryptedKey = isParticipant1 
-    ? thread.encrypted_key_for_p1 
+  let myEncryptedKey = isParticipant1
+    ? thread.encrypted_key_for_p1
     : thread.encrypted_key_for_p2;
+
+  if (!myEncryptedKey) {
+    const { data: participantProfiles } = await supabase
+      .from("profiles")
+      .select("id, encryption_public_key")
+      .in("id", [thread.participant1_id, thread.participant2_id]);
+
+    const p1 = participantProfiles?.find((p) => p.id === thread.participant1_id);
+    const p2 = participantProfiles?.find((p) => p.id === thread.participant2_id);
+
+    if (p1?.encryption_public_key && p2?.encryption_public_key) {
+      try {
+        const roomKey = generateDMRoomKey();
+        const encryptedKeyForP1 = encryptRoomKeyForProfilePublicKey(p1.encryption_public_key, roomKey);
+        const encryptedKeyForP2 = encryptRoomKeyForProfilePublicKey(p2.encryption_public_key, roomKey);
+
+        await supabase
+          .from("dm_threads")
+          .update({
+            encrypted_key_for_p1: encryptedKeyForP1,
+            encrypted_key_for_p2: encryptedKeyForP2,
+          })
+          .eq("id", threadId);
+
+        myEncryptedKey = isParticipant1 ? encryptedKeyForP1 : encryptedKeyForP2;
+      } catch {
+        // Keep null and let client show key-preparation state.
+      }
+    }
+  }
 
   const { data: otherUser } = await supabase
     .from("profiles")
@@ -651,6 +738,8 @@ export async function getThreadDetails(threadId: string) {
     .limit(1)
     .maybeSingle();
 
+  const canSend = !pendingRequest;
+
   return {
     success: true,
     thread: {
@@ -662,9 +751,71 @@ export async function getThreadDetails(threadId: string) {
     currentUserId: user.id,
     isParticipant1,
     myEncryptedRoomKey: myEncryptedKey ?? null,
-    roomKey: thread.room_key ?? null, // 평문 room key
-    canSend: !pendingRequest,
+    roomKey: null,
+    canSend,
     otherUserPublicKey: otherUser?.encryption_public_key ?? null,
+  };
+}
+
+// =====================================================
+// Rotate Thread Room Key (Key mismatch recovery)
+// =====================================================
+
+export async function rotateThreadRoomKey(threadId: string) {
+  const supabase = await createSupabaseServerClient();
+  const { data: { user } } = await supabase.auth.getUser();
+
+  if (!user) {
+    return { error: "로그인이 필요합니다" };
+  }
+
+  const { data: thread } = await supabase
+    .from("dm_threads")
+    .select("id, participant1_id, participant2_id")
+    .eq("id", threadId)
+    .single();
+
+  if (!thread) {
+    return { error: "스레드를 찾을 수 없습니다" };
+  }
+
+  const isParticipant1 = thread.participant1_id === user.id;
+  const isParticipant2 = thread.participant2_id === user.id;
+  if (!isParticipant1 && !isParticipant2) {
+    return { error: "접근 권한이 없습니다" };
+  }
+
+  const { data: profiles } = await supabase
+    .from("profiles")
+    .select("id, encryption_public_key")
+    .in("id", [thread.participant1_id, thread.participant2_id]);
+
+  const p1 = profiles?.find((p) => p.id === thread.participant1_id);
+  const p2 = profiles?.find((p) => p.id === thread.participant2_id);
+
+  if (!p1?.encryption_public_key || !p2?.encryption_public_key) {
+    return { error: "참여자 암호화 키가 아직 준비되지 않았습니다" };
+  }
+
+  const roomKey = generateDMRoomKey();
+  const encryptedKeyForP1 = encryptRoomKeyForProfilePublicKey(p1.encryption_public_key, roomKey);
+  const encryptedKeyForP2 = encryptRoomKeyForProfilePublicKey(p2.encryption_public_key, roomKey);
+
+  const { error: updateError } = await supabase
+    .from("dm_threads")
+    .update({
+      encrypted_key_for_p1: encryptedKeyForP1,
+      encrypted_key_for_p2: encryptedKeyForP2,
+    })
+    .eq("id", threadId);
+
+  if (updateError) {
+    return { error: updateError.message };
+  }
+
+  return {
+    success: true,
+    myEncryptedRoomKey: isParticipant1 ? encryptedKeyForP1 : encryptedKeyForP2,
   };
 }
 
