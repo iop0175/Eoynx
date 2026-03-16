@@ -12,6 +12,7 @@ import {
 } from "react-native";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { ReportModal, type ReportReason } from "../../components/ReportModal";
+import { getRequestErrorMessage, runRequestWithPolicy, type ApiErrorLike } from "../../lib/requestPolicy";
 import { supabase } from "../../lib/supabase";
 import type { FeedStackParamList } from "../../navigation/types";
 import { webUi } from "../../theme/webUi";
@@ -39,6 +40,7 @@ const isDeletedComment = (content: string) =>
   content === DELETED_COMMENT_SELF || content === DELETED_COMMENT_BY_OWNER;
 
 export function FeedItemDetailScreen({ route, navigation }: Props) {
+  const language = "ko" as const;
   const { item } = route.params;
   const imageScrollRef = useRef<ScrollView | null>(null);
   const [loading, setLoading] = useState(true);
@@ -65,10 +67,10 @@ export function FeedItemDetailScreen({ route, navigation }: Props) {
   const loadDetailData = async () => {
     setLoading(true);
 
-    const { data: authData, error: authError } = await supabase.auth.getUser();
+    const { data: authData, error: authError } = await runRequestWithPolicy(() => supabase.auth.getUser());
     if (authError) {
       setLoading(false);
-      Alert.alert("Auth Error", authError.message);
+      Alert.alert("Auth Error", getRequestErrorMessage(language, authError));
       return;
     }
 
@@ -76,18 +78,26 @@ export function FeedItemDetailScreen({ route, navigation }: Props) {
     setUserId(uid);
 
     const [likesCountRes, likedRes, bookmarkedRes, commentsRes] = await Promise.all([
-      supabase.from("likes").select("id", { count: "exact", head: true }).eq("item_id", item.id),
+      runRequestWithPolicy(() =>
+        supabase.from("likes").select("id", { count: "exact", head: true }).eq("item_id", item.id)
+      ),
       uid
-        ? supabase.from("likes").select("id").eq("item_id", item.id).eq("user_id", uid).maybeSingle()
+        ? runRequestWithPolicy(() =>
+            supabase.from("likes").select("id").eq("item_id", item.id).eq("user_id", uid).maybeSingle()
+          )
         : Promise.resolve({ data: null, error: null }),
       uid
-        ? supabase.from("bookmarks").select("id").eq("item_id", item.id).eq("user_id", uid).maybeSingle()
+        ? runRequestWithPolicy(() =>
+            supabase.from("bookmarks").select("id").eq("item_id", item.id).eq("user_id", uid).maybeSingle()
+          )
         : Promise.resolve({ data: null, error: null }),
-      supabase
-        .from("comments")
-        .select("id,item_id,user_id,parent_id,content,created_at")
-        .eq("item_id", item.id)
-        .order("created_at", { ascending: false }),
+      runRequestWithPolicy(() =>
+        supabase
+          .from("comments")
+          .select("id,item_id,user_id,parent_id,content,created_at")
+          .eq("item_id", item.id)
+          .order("created_at", { ascending: false })
+      ),
     ]);
 
     setLoading(false);
@@ -95,11 +105,11 @@ export function FeedItemDetailScreen({ route, navigation }: Props) {
     if (likesCountRes.error || likedRes.error || bookmarkedRes.error || commentsRes.error) {
       Alert.alert(
         "Load Error",
-        likesCountRes.error?.message ??
-          likedRes.error?.message ??
-          bookmarkedRes.error?.message ??
-          commentsRes.error?.message ??
+        getRequestErrorMessage(
+          language,
+          likesCountRes.error ?? likedRes.error ?? bookmarkedRes.error ?? commentsRes.error,
           "Unknown error"
+        )
       );
       return;
     }
@@ -116,13 +126,15 @@ export function FeedItemDetailScreen({ route, navigation }: Props) {
       return;
     }
 
-    const { data: profilesData, error: profilesError } = await supabase
-      .from("profiles")
-      .select("id,handle,display_name")
-      .in("id", uniqueUserIds);
+    const { data: profilesData, error: profilesError } = await runRequestWithPolicy(() =>
+      supabase
+        .from("profiles")
+        .select("id,handle,display_name")
+        .in("id", uniqueUserIds)
+    );
 
     if (profilesError) {
-      Alert.alert("Profile Error", profilesError.message);
+      Alert.alert("Profile Error", getRequestErrorMessage(language, profilesError));
       return;
     }
 
@@ -139,13 +151,23 @@ export function FeedItemDetailScreen({ route, navigation }: Props) {
       return;
     }
     setActionLoading(true);
-    const { error } = liked
-      ? await supabase.from("likes").delete().eq("item_id", item.id).eq("user_id", userId)
-      : await supabase.from("likes").upsert({ item_id: item.id, user_id: userId }, { onConflict: "user_id,item_id" });
+    let error: ApiErrorLike = null;
+    try {
+      const response = liked
+        ? await runRequestWithPolicy(() =>
+            supabase.from("likes").delete().eq("item_id", item.id).eq("user_id", userId)
+          )
+        : await runRequestWithPolicy(() =>
+            supabase.from("likes").upsert({ item_id: item.id, user_id: userId }, { onConflict: "user_id,item_id" })
+          );
+      error = response.error;
+    } catch (likeError) {
+      error = likeError as ApiErrorLike;
+    }
     setActionLoading(false);
 
     if (error) {
-      Alert.alert("Like Error", error.message);
+      Alert.alert("Like Error", getRequestErrorMessage(language, error));
       return;
     }
 
@@ -159,15 +181,25 @@ export function FeedItemDetailScreen({ route, navigation }: Props) {
       return;
     }
     setActionLoading(true);
-    const { error } = bookmarked
-      ? await supabase.from("bookmarks").delete().eq("item_id", item.id).eq("user_id", userId)
-      : await supabase
-          .from("bookmarks")
-          .upsert({ item_id: item.id, user_id: userId }, { onConflict: "user_id,item_id" });
+    let error: ApiErrorLike = null;
+    try {
+      const response = bookmarked
+        ? await runRequestWithPolicy(() =>
+            supabase.from("bookmarks").delete().eq("item_id", item.id).eq("user_id", userId)
+          )
+        : await runRequestWithPolicy(() =>
+            supabase
+              .from("bookmarks")
+              .upsert({ item_id: item.id, user_id: userId }, { onConflict: "user_id,item_id" })
+          );
+      error = response.error;
+    } catch (bookmarkError) {
+      error = bookmarkError as ApiErrorLike;
+    }
     setActionLoading(false);
 
     if (error) {
-      Alert.alert("Bookmark Error", error.message);
+      Alert.alert("Bookmark Error", getRequestErrorMessage(language, error));
       return;
     }
 
@@ -183,16 +215,18 @@ export function FeedItemDetailScreen({ route, navigation }: Props) {
     }
 
     setActionLoading(true);
-    const { error } = await supabase.from("comments").insert({
-      content,
-      item_id: item.id,
-      user_id: userId,
-      parent_id: parentId ?? null,
-    });
+    const { error } = await runRequestWithPolicy(() =>
+      supabase.from("comments").insert({
+        content,
+        item_id: item.id,
+        user_id: userId,
+        parent_id: parentId ?? null,
+      })
+    );
     setActionLoading(false);
 
     if (error) {
-      Alert.alert("Comment Error", error.message);
+      Alert.alert("Comment Error", getRequestErrorMessage(language, error));
       return;
     }
 
@@ -219,13 +253,15 @@ export function FeedItemDetailScreen({ route, navigation }: Props) {
     }
 
     setActionLoading(true);
-    const { error } = await supabase.rpc("delete_comment_with_policy", {
-      p_comment_id: commentId,
-    });
+    const { error } = await runRequestWithPolicy(() =>
+      supabase.rpc("delete_comment_with_policy", {
+        p_comment_id: commentId,
+      })
+    );
     setActionLoading(false);
 
     if (error) {
-      Alert.alert("Delete Error", error.message);
+      Alert.alert("Delete Error", getRequestErrorMessage(language, error));
       return;
     }
 
@@ -247,15 +283,17 @@ export function FeedItemDetailScreen({ route, navigation }: Props) {
     if (!nextContent || !userId) return;
 
     setActionLoading(true);
-    const { error } = await supabase
-      .from("comments")
-      .update({ content: nextContent })
-      .eq("id", commentId)
-      .eq("user_id", userId);
+    const { error } = await runRequestWithPolicy(() =>
+      supabase
+        .from("comments")
+        .update({ content: nextContent })
+        .eq("id", commentId)
+        .eq("user_id", userId)
+    );
     setActionLoading(false);
 
     if (error) {
-      Alert.alert("Edit Error", error.message);
+      Alert.alert("Edit Error", getRequestErrorMessage(language, error));
       return;
     }
 
@@ -272,15 +310,17 @@ export function FeedItemDetailScreen({ route, navigation }: Props) {
       return { ok: false, error: "Please sign in first." };
     }
 
-    const { error } = await supabase.from("reports").insert({
-      reporter_id: userId,
-      reported_item_id: item.id,
-      reason,
-      description: description || null,
-    });
+    const { error } = await runRequestWithPolicy(() =>
+      supabase.from("reports").insert({
+        reporter_id: userId,
+        reported_item_id: item.id,
+        reason,
+        description: description || null,
+      })
+    );
 
     if (error) {
-      return { ok: false, error: error.message };
+      return { ok: false, error: getRequestErrorMessage(language, error) };
     }
 
     return { ok: true };
@@ -296,17 +336,19 @@ export function FeedItemDetailScreen({ route, navigation }: Props) {
       return;
     }
 
-    const { error } = await supabase.from("blocks").insert({
-      blocker_id: userId,
-      blocked_id: item.owner_id,
-    });
+    const { error } = await runRequestWithPolicy(() =>
+      supabase.from("blocks").insert({
+        blocker_id: userId,
+        blocked_id: item.owner_id,
+      })
+    );
 
     if (error) {
       if (error.code === "23505") {
         Alert.alert("Blocked", "This user is already blocked.");
         return;
       }
-      Alert.alert("Block Error", error.message);
+      Alert.alert("Block Error", getRequestErrorMessage(language, error));
       return;
     }
 

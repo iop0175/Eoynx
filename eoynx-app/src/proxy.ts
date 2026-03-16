@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { updateSession } from '@/lib/supabase/middleware'
 
-export async function middleware(request: NextRequest) {
+export async function proxy(request: NextRequest) {
   try {
     const canonicalUrl = (process.env.NEXT_PUBLIC_SITE_URL ?? 'https://www.eoynx.com').trim()
     const canonicalHost = new URL(canonicalUrl).host

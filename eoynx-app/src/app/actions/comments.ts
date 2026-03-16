@@ -59,13 +59,13 @@ export async function addComment(itemId: string, content: string, parentId?: str
   // Get item owner for notification
   const { data: item } = await supabase
     .from("items")
-    .select("user_id")
+    .select("owner_id")
     .eq("id", itemId)
     .single();
 
-  if (item && item.user_id !== user.id) {
+  if (item && item.owner_id !== user.id) {
     await createNotification({
-      userId: item.user_id,
+      userId: item.owner_id,
       type: "comment",
       actorId: user.id,
       itemId,

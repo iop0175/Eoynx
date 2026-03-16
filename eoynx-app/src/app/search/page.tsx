@@ -1,10 +1,12 @@
 import type { Metadata } from "next";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getTranslations } from "next-intl/server";
 import { searchPeople, searchItems, type SearchSortBy, type SearchCategory } from "@/app/actions/search";
 import { SearchClient } from "./search-client";
 
 const BASE_URL = (process.env.NEXT_PUBLIC_SITE_URL || "https://eoynx.com").trim();
+
+// Search is public/read-heavy, so short ISR helps repeated query landings.
+export const revalidate = 60;
 
 export const metadata: Metadata = {
   title: "Search",

@@ -61,6 +61,9 @@
 - DM preview 과거 데이터 정책 확정 (점진 갱신 채택 + fallback 기준 문서화)
 - requestPolicy 잔여 경로 감사 1차 완료 (DMThread 내 누락 에러 처리 보강)
 - requestPolicy 잔여 경로 감사 2차 완료 (Add/Profile likes/profile 조회 누락 에러 처리 보강)
+- 모바일 DM 저사양 검증 자동화 1차 착수
+	- ADB 수집 스크립트 추가: eoynx-mobile/scripts/mobile-dm-lowend-check.ps1
+	- 실행 체크리스트 추가: eoynx-mobile/DM_LOWEND_VALIDATION_CHECKLIST_2026-03-16.ko.md
 
 최근 측정 요약
 - Search (실데이터, q=PERF): perf 75, LCP 8.2s, TBT 80ms, unused JS 약 292KiB
@@ -217,8 +220,8 @@
 ## 7) 통합 백로그 (실행용)
 
 P0
-- [ ] requestPolicy 잔여 경로 최종 감사
-- [ ] 모바일 DM 화면 저사양 기기에서 배터리/발열/스크롤 체감 재검증
+- [~] requestPolicy 잔여 경로 최종 감사 (1~2차 완료, 최종 패스/리포트 대기)
+- [~] 모바일 DM 화면 저사양 기기에서 배터리/발열/스크롤 체감 재검증 (자동 수집/체크리스트 준비 완료, 실측 1회 대기)
 - [ ] DM preview fallback 비율 모니터링 지표 도입
 
 P1

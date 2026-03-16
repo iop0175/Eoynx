@@ -1,6 +1,8 @@
 import { useMemo, useState } from "react";
 import { ActivityIndicator, Alert, FlatList, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
+import { useI18n } from "../i18n";
+import { getRequestErrorMessage, type ApiErrorLike, runRequestWithPolicy } from "../lib/requestPolicy";
 import { supabase } from "../lib/supabase";
 import type { Item } from "../types/item";
 import { webUi } from "../theme/webUi";
@@ -31,6 +33,7 @@ type ItemRow = {
 };
 
 export function SearchScreen({ navigation }: Props) {
+  const { language, t } = useI18n();
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(false);
   const [people, setPeople] = useState<Person[]>([]);
@@ -44,74 +47,93 @@ export function SearchScreen({ navigation }: Props) {
     if (!trimmed) return;
 
     setLoading(true);
-    const [peopleRes, itemsRes] = await Promise.all([
-      supabase
-        .from("profiles")
-        .select("id,handle,display_name")
-        .or(`handle.ilike.%${trimmed}%,display_name.ilike.%${trimmed}%`)
-        .limit(20),
-      supabase
-        .from("items")
-        .select("id,title,description,image_url,category,brand,owner_id,visibility,created_at,profiles(handle,display_name,avatar_url)")
-        .or(`title.ilike.%${trimmed}%,description.ilike.%${trimmed}%,brand.ilike.%${trimmed}%`)
-        .eq("visibility", "public")
-        .order("created_at", { ascending: false })
-        .limit(20),
-    ]);
-    setLoading(false);
+    try {
+      const [peopleRes, itemsRes] = await Promise.all([
+        runRequestWithPolicy(
+          () =>
+            supabase
+              .from("profiles")
+              .select("id,handle,display_name")
+              .or(`handle.ilike.%${trimmed}%,display_name.ilike.%${trimmed}%`)
+              .limit(20),
+          { timeoutMs: 8000, retries: 1 }
+        ),
+        runRequestWithPolicy(
+          () =>
+            supabase
+              .from("items")
+              .select("id,title,description,image_url,category,brand,owner_id,visibility,created_at,profiles(handle,display_name,avatar_url)")
+              .or(`title.ilike.%${trimmed}%,description.ilike.%${trimmed}%,brand.ilike.%${trimmed}%`)
+              .eq("visibility", "public")
+              .order("created_at", { ascending: false })
+              .limit(20),
+          { timeoutMs: 8000, retries: 1 }
+        ),
+      ]);
 
-    if (peopleRes.error || itemsRes.error) {
-      Alert.alert("Search Error", peopleRes.error?.message ?? itemsRes.error?.message ?? "Unknown error");
-      return;
+      if (peopleRes.error || itemsRes.error) {
+        Alert.alert(
+          t("alert.loadError"),
+          getRequestErrorMessage(language, peopleRes.error ?? itemsRes.error, t("common.unknownError"))
+        );
+        return;
+      }
+
+      setPeople((peopleRes.data ?? []) as Person[]);
+      setItems(
+        ((itemsRes.data ?? []) as ItemRow[]).map((row) => {
+          const profile = Array.isArray(row.profiles) ? row.profiles[0] : row.profiles;
+          return {
+            id: row.id,
+            title: row.title,
+            description: row.description,
+            image_url: row.image_url,
+            category: row.category,
+            brand: row.brand,
+            owner_id: row.owner_id,
+            visibility: row.visibility,
+            created_at: row.created_at,
+            owner: {
+              handle: profile?.handle ?? "unknown",
+              display_name: profile?.display_name ?? null,
+              avatar_url: profile?.avatar_url ?? null,
+            },
+          };
+        })
+      );
+    } catch (error) {
+      Alert.alert(
+        t("alert.loadError"),
+        getRequestErrorMessage(language, error as ApiErrorLike, t("common.unknownError"))
+      );
+    } finally {
+      setLoading(false);
     }
-
-    setPeople((peopleRes.data ?? []) as Person[]);
-    setItems(
-      ((itemsRes.data ?? []) as ItemRow[]).map((row) => {
-        const profile = Array.isArray(row.profiles) ? row.profiles[0] : row.profiles;
-        return {
-          id: row.id,
-          title: row.title,
-          description: row.description,
-          image_url: row.image_url,
-          category: row.category,
-          brand: row.brand,
-          owner_id: row.owner_id,
-          visibility: row.visibility,
-          created_at: row.created_at,
-          owner: {
-            handle: profile?.handle ?? "unknown",
-            display_name: profile?.display_name ?? null,
-            avatar_url: profile?.avatar_url ?? null,
-          },
-        };
-      })
-    );
   };
 
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>Search</Text>
+      <Text style={styles.title}>{t("search.title")}</Text>
       <View style={styles.searchRow}>
         <TextInput
           onChangeText={setQuery}
           onSubmitEditing={() => void runSearch()}
-          placeholder="Search people or items"
+          placeholder={t("search.placeholder")}
           placeholderTextColor={webUi.color.placeholder}
           style={styles.input}
           value={query}
         />
         <Pressable disabled={!hasQuery || loading} onPress={() => void runSearch()} style={styles.searchButton}>
-          <Text style={styles.searchButtonLabel}>{loading ? "..." : "Go"}</Text>
+          <Text style={styles.searchButtonLabel}>{loading ? "..." : t("search.action")}</Text>
         </Pressable>
       </View>
 
       <View style={styles.tabRow}>
         <Pressable onPress={() => setTab("people")} style={[styles.tabButton, tab === "people" && styles.tabButtonActive]}>
-          <Text style={[styles.tabLabel, tab === "people" && styles.tabLabelActive]}>People</Text>
+          <Text style={[styles.tabLabel, tab === "people" && styles.tabLabelActive]}>{t("search.tab.people")}</Text>
         </Pressable>
         <Pressable onPress={() => setTab("items")} style={[styles.tabButton, tab === "items" && styles.tabButtonActive]}>
-          <Text style={[styles.tabLabel, tab === "items" && styles.tabLabelActive]}>Items</Text>
+          <Text style={[styles.tabLabel, tab === "items" && styles.tabLabelActive]}>{t("search.tab.items")}</Text>
         </Pressable>
       </View>
 
@@ -121,7 +143,7 @@ export function SearchScreen({ navigation }: Props) {
         <FlatList
           data={people}
           keyExtractor={(item) => item.id}
-          ListEmptyComponent={<Text style={styles.empty}>No people found.</Text>}
+          ListEmptyComponent={<Text style={styles.empty}>{t("search.empty.people")}</Text>}
           renderItem={({ item }) => (
             <Pressable
               onPress={() =>
@@ -141,15 +163,22 @@ export function SearchScreen({ navigation }: Props) {
         <FlatList
           data={items}
           keyExtractor={(item) => item.id}
-          ListEmptyComponent={<Text style={styles.empty}>No items found.</Text>}
+          ListEmptyComponent={<Text style={styles.empty}>{t("search.empty.items")}</Text>}
           renderItem={({ item }) => (
             <Pressable
-              onPress={() => Alert.alert("Item", "Open this item from Feed tab for full detail view.")}
+              onPress={() =>
+                Alert.alert(
+                  language === "ko" ? "아이템" : "Item",
+                  language === "ko"
+                    ? "피드 탭에서 열면 전체 상세 화면을 볼 수 있습니다."
+                    : "Open this item from the Feed tab for the full detail view."
+                )
+              }
               style={styles.card}
             >
               <Text style={styles.cardTitle}>{item.title}</Text>
               <Text style={styles.cardMeta}>
-                @{item.owner.handle} · {item.category ?? "Uncategorized"}
+                @{item.owner.handle} · {item.category ?? t("search.uncategorized")}
               </Text>
             </Pressable>
           )}

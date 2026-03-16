@@ -1,4 +1,4 @@
-import { redirect, notFound } from "next/navigation";
+import { redirect } from "next/navigation";
 import { NOINDEX } from "@/lib/robots";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getThreadDetails, getMessages } from "@/app/actions/dm";
@@ -24,7 +24,10 @@ export default async function DMThreadPage({ params }: Props) {
   const threadResult = await getThreadDetails(threadId);
   
   if (threadResult.error || !threadResult.thread) {
-    notFound();
+    if (threadResult.error === "로그인이 필요합니다") {
+      redirect("/auth");
+    }
+    redirect("/dm");
   }
 
   const messagesResult = await getMessages(threadId);
@@ -36,6 +39,7 @@ export default async function DMThreadPage({ params }: Props) {
       initialMessages={messagesResult.messages}
       currentUserId={threadResult.currentUserId!}
       canSend={threadResult.canSend ?? true}
+      myEncryptedRoomKey={threadResult.myEncryptedRoomKey ?? null}
       roomKeyBase64={threadResult.roomKey ?? null}
     />
   );

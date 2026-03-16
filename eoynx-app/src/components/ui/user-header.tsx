@@ -5,11 +5,13 @@ export function UserHeader({
   displayName,
   subtitle,
   right,
+  showProfileLink = true,
 }: {
   handle: string;
   displayName?: string | null;
   subtitle?: string | null;
   right?: React.ReactNode;
+  showProfileLink?: boolean;
 }) {
   return (
     <div className="flex items-center justify-between gap-4">
@@ -28,12 +30,14 @@ export function UserHeader({
 
       <div className="flex items-center gap-2">
         {right}
-        <Link
-          href={`/u/${handle}`}
-          className="rounded-full border border-neutral-200 bg-white px-3 py-2 text-xs font-medium text-neutral-900 hover:bg-neutral-50 dark:border-neutral-800 dark:bg-black dark:text-white dark:hover:bg-neutral-900"
-        >
-          View
-        </Link>
+        {showProfileLink ? (
+          <Link
+            href={`/u/${handle}`}
+            className="rounded-full border border-neutral-200 bg-white px-3 py-2 text-xs font-medium text-neutral-900 hover:bg-neutral-50 dark:border-neutral-800 dark:bg-black dark:text-white dark:hover:bg-neutral-900"
+          >
+            View
+          </Link>
+        ) : null}
       </div>
     </div>
   );

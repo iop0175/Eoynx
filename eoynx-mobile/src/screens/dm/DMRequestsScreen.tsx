@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { ActivityIndicator, Alert, FlatList, Pressable, StyleSheet, Text, View } from "react-native";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
+import { getRequestErrorMessage, runRequestWithPolicy, type ApiErrorLike } from "../../lib/requestPolicy";
 import { supabase } from "../../lib/supabase";
 import type { FeedStackParamList } from "../../navigation/types";
 import { webUi } from "../../theme/webUi";
@@ -30,6 +31,7 @@ type RequestItem = {
 };
 
 export function DMRequestsScreen({ navigation }: Props) {
+  const language = "ko" as const;
   const [loading, setLoading] = useState(true);
   const [requests, setRequests] = useState<RequestItem[]>([]);
 
@@ -39,38 +41,40 @@ export function DMRequestsScreen({ navigation }: Props) {
 
   const loadRequests = async () => {
     setLoading(true);
-    const { data: authData, error: authError } = await supabase.auth.getUser();
+    const { data: authData, error: authError } = await runRequestWithPolicy(() => supabase.auth.getUser());
     if (authError || !authData.user) {
       setLoading(false);
-      Alert.alert("Auth Error", authError?.message ?? "No authenticated user.");
+      Alert.alert("Auth Error", getRequestErrorMessage(language, authError, "No authenticated user."));
       return;
     }
     const userId = authData.user.id;
 
-    const { data, error } = await supabase
-      .from("dm_requests")
-      .select("id,from_user_id,thread_id,status,created_at")
-      .eq("to_user_id", userId)
-      .eq("status", "pending")
-      .order("created_at", { ascending: false })
-      .limit(50);
+    const { data, error } = await runRequestWithPolicy(() =>
+      supabase
+        .from("dm_requests")
+        .select("id,from_user_id,thread_id,status,created_at")
+        .eq("to_user_id", userId)
+        .eq("status", "pending")
+        .order("created_at", { ascending: false })
+        .limit(50)
+    );
 
     if (error) {
       setLoading(false);
-      Alert.alert("Load Error", error.message);
+      Alert.alert("Load Error", getRequestErrorMessage(language, error));
       return;
     }
 
     const rows = (data ?? []) as RequestRow[];
     const fromIds = Array.from(new Set(rows.map((row) => row.from_user_id)));
     const { data: profiles, error: profilesError } = fromIds.length
-      ? await supabase.from("profiles").select("id,handle,display_name").in("id", fromIds)
+      ? await runRequestWithPolicy(() => supabase.from("profiles").select("id,handle,display_name").in("id", fromIds))
       : { data: [], error: null };
 
     setLoading(false);
 
     if (profilesError) {
-      Alert.alert("Load Error", profilesError.message);
+      Alert.alert("Load Error", getRequestErrorMessage(language, profilesError));
       return;
     }
 
@@ -87,17 +91,29 @@ export function DMRequestsScreen({ navigation }: Props) {
   };
 
   const respond = async (requestId: string, accept: boolean, threadId: string, otherHandle: string) => {
-    const { data: authData } = await supabase.auth.getUser();
+    const { data: authData, error: authError } = await runRequestWithPolicy(() => supabase.auth.getUser());
+    if (authError) {
+      Alert.alert("Auth Error", getRequestErrorMessage(language, authError));
+      return;
+    }
     const userId = authData.user?.id;
     if (!userId) return;
 
-    const { error } = await supabase
-      .from("dm_requests")
-      .update({ status: accept ? "accepted" : "declined" })
-      .eq("id", requestId)
-      .eq("to_user_id", userId);
+    let error: ApiErrorLike = null;
+    try {
+      const response = await runRequestWithPolicy(() =>
+        supabase
+          .from("dm_requests")
+          .update({ status: accept ? "accepted" : "declined" })
+          .eq("id", requestId)
+          .eq("to_user_id", userId)
+      );
+      error = response.error;
+    } catch (updateError) {
+      error = updateError as ApiErrorLike;
+    }
     if (error) {
-      Alert.alert("Update Error", error.message);
+      Alert.alert("Update Error", getRequestErrorMessage(language, error));
       return;
     }
 

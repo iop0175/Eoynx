@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
+import { useRouter } from "next/navigation";
 import {
   generateKeyPair,
   exportPublicKey,
@@ -20,6 +21,7 @@ interface EncryptionKeyInitProps {
  */
 export function EncryptionKeyInit({ userId }: EncryptionKeyInitProps) {
   const initAttempted = useRef(false);
+  const router = useRouter();
 
   useEffect(() => {
     if (!userId || initAttempted.current) return;
@@ -30,7 +32,7 @@ export function EncryptionKeyInit({ userId }: EncryptionKeyInitProps) {
     async function initEncryptionKeys() {
       try {
         // 이미 개인키가 있으면 종료
-        if (hasPrivateKey(currentUserId)) {
+        if (await hasPrivateKey(currentUserId)) {
           // 서버에 공개키가 있는지 확인
           const { publicKey: existingKey } = await getEncryptionPublicKey(currentUserId);
           if (existingKey) {
@@ -51,6 +53,7 @@ export function EncryptionKeyInit({ userId }: EncryptionKeyInitProps) {
         await saveEncryptionPublicKey(publicKeyJwk);
 
         console.log("Encryption keys initialized successfully");
+        router.refresh();
       } catch (error) {
         console.error("Failed to initialize encryption keys:", error);
       }

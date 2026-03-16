@@ -120,8 +120,11 @@ export function FeedClient({
   // 좋아요 실시간 구독 (Supabase Realtime)
   React.useEffect(() => {
     const supabase = createSupabaseBrowserClient();
+    const refreshTimers = new Map<string, ReturnType<typeof setTimeout>>();
     
     const refreshLikeState = async (itemId: string) => {
+      if (typeof document !== "undefined" && document.hidden) return;
+
       const [countRes, likedRes] = await Promise.all([
         supabase.from("likes").select("id", { count: "exact", head: true }).eq("item_id", itemId),
         currentUserId
@@ -140,6 +143,20 @@ export function FeedClient({
       }
     };
 
+    const scheduleLikeRefresh = (itemId: string) => {
+      const prevTimer = refreshTimers.get(itemId);
+      if (prevTimer) {
+        clearTimeout(prevTimer);
+      }
+
+      const nextTimer = setTimeout(() => {
+        refreshTimers.delete(itemId);
+        void refreshLikeState(itemId);
+      }, 250);
+
+      refreshTimers.set(itemId, nextTimer);
+    };
+
     const channel = supabase
       .channel(`feed-likes:${currentUserId ?? "anon"}`)
       .on(
@@ -153,12 +170,14 @@ export function FeedClient({
           const affectedItemId = payload?.new?.item_id ?? payload?.old?.item_id;
           if (!affectedItemId) return;
           if (!feedItemIdsRef.current.has(affectedItemId)) return;
-          void refreshLikeState(affectedItemId);
+          scheduleLikeRefresh(affectedItemId);
         }
       )
       .subscribe();
 
     return () => {
+      refreshTimers.forEach((timer) => clearTimeout(timer));
+      refreshTimers.clear();
       void supabase.removeChannel(channel);
     };
   }, [currentUserId]);

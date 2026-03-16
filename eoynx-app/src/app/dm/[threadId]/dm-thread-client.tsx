@@ -1,14 +1,16 @@
 "use client";
 
-import { useState, useRef, useEffect, useTransition, useCallback } from "react";
+import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Send, ArrowLeft, Lock, LogOut, MoreVertical, Image as ImageIcon, X, Loader2 } from "lucide-react";
 import { Avatar } from "@/components/ui/optimized-image";
 import { PageShell } from "@/components/page-shell";
-import { sendMessage, leaveThread, uploadDMImage } from "@/app/actions/dm";
+import { sendMessage, leaveThread, uploadDMImage, rotateThreadRoomKey } from "@/app/actions/dm";
 import {
+  decryptRoomKey,
   encryptWithRoomKey,
+  loadPrivateKey,
   importRoomKey,
 } from "@/lib/crypto";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
@@ -20,8 +22,12 @@ interface Message {
   content: string;
   created_at: string;
   is_pending?: boolean;
+  decrypt_failed?: boolean;
+  decrypted_checked?: boolean;
   // E2E 암호화 필드 (서버에서 복호화 후 전달됨)
   is_encrypted?: boolean;
+  encrypted_content?: string | null;
+  iv?: string | null;
   // 이미지 첨부
   image_url?: string | null;
 }
@@ -39,7 +45,19 @@ interface DMThreadClientProps {
   initialMessages: Message[];
   currentUserId: string;
   canSend: boolean;
+  myEncryptedRoomKey: string | null;
   roomKeyBase64: string | null; // 평문 room key (Base64)
+}
+
+const ENABLE_DM_REALTIME = true;
+
+function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<T>((_, reject) => {
+      setTimeout(() => reject(new Error(message)), ms);
+    }),
+  ]);
 }
 
 type SharedItemPreview = {
@@ -82,12 +100,12 @@ export function DMThreadClient({
   initialMessages,
   currentUserId,
   canSend,
+  myEncryptedRoomKey,
   roomKeyBase64,
 }: DMThreadClientProps) {
   const router = useRouter();
   const [messages, setMessages] = useState<Message[]>(initialMessages);
-  const [newMessage, setNewMessage] = useState("");
-  const [isPending, startTransition] = useTransition();
+  const [isSending, setIsSending] = useState(false);
   const [atBottom, setAtBottom] = useState(true);
   const [hasNewIncoming, setHasNewIncoming] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
@@ -96,6 +114,7 @@ export function DMThreadClient({
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
   
   // 메뉴 상태
   const [showMenu, setShowMenu] = useState(false);
@@ -111,7 +130,7 @@ export function DMThreadClient({
   const [encryptionReady, setEncryptionReady] = useState(false);
   const [sharedItemPreviews, setSharedItemPreviews] = useState<Record<string, SharedItemPreview>>({});
 
-  const scrollToBottom = useCallback((behavior: ScrollBehavior = "smooth") => {
+  const scrollToBottom = useCallback((behavior: ScrollBehavior = "auto") => {
     messagesEndRef.current?.scrollIntoView({ behavior });
   }, []);
 
@@ -135,25 +154,46 @@ export function DMThreadClient({
   // 방 키 초기화 (전송용 암호화에만 사용)
   useEffect(() => {
     async function initRoomEncryption() {
-      if (!roomKeyBase64) {
-        setEncryptionReady(true);
-        return;
-      }
-
       try {
-        const cryptoKey = await importRoomKey(roomKeyBase64);
-        setRoomKey(cryptoKey);
+        if (myEncryptedRoomKey) {
+          const privateKey = await loadPrivateKey(currentUserId);
+          if (privateKey) {
+            try {
+              const decryptedRoomKey = await decryptRoomKey(privateKey, myEncryptedRoomKey);
+              setRoomKey(decryptedRoomKey);
+              setEncryptionReady(true);
+              return;
+            } catch {
+              const rotated = await rotateThreadRoomKey(threadId);
+              if ("myEncryptedRoomKey" in rotated && rotated.myEncryptedRoomKey) {
+                const recoveredRoomKey = await decryptRoomKey(privateKey, rotated.myEncryptedRoomKey);
+                setRoomKey(recoveredRoomKey);
+                setEncryptionReady(true);
+                return;
+              }
+            }
+          }
+        }
+
+        if (roomKeyBase64) {
+          const cryptoKey = await importRoomKey(roomKeyBase64);
+          setRoomKey(cryptoKey);
+        }
         setEncryptionReady(true);
-      } catch (error) {
+      } catch {
         setEncryptionReady(true);
       }
     }
 
-    initRoomEncryption();
-  }, [roomKeyBase64]);
+    void initRoomEncryption();
+  }, [myEncryptedRoomKey, roomKeyBase64, currentUserId, threadId]);
 
   // 실시간 메시지 구독 (Supabase Realtime)
   useEffect(() => {
+    if (!ENABLE_DM_REALTIME) {
+      return;
+    }
+
     const supabase = createSupabaseBrowserClient();
     
     // 이미지 경로를 public URL로 변환하는 헬퍼
@@ -200,19 +240,23 @@ export function DMThreadClient({
             .then((decrypted) => {
               setMessages((current) =>
                 current.map((m) =>
-                  m.id === newRow.id ? { ...m, content: decrypted } : m
+                  m.id === newRow.id ? { ...m, content: decrypted, decrypted_checked: true } : m
                 )
               );
             })
             .catch(() => {
               setMessages((current) =>
                 current.map((m) =>
-                  m.id === newRow.id ? { ...m, content: "복호화 실패" } : m
+                  m.id === newRow.id ? { ...m, content: "복호화 실패", decrypt_failed: true, decrypted_checked: true } : m
                 )
               );
             });
           content = "복호화 중...";
+        } else if (newRow.is_encrypted) {
+          content = "암호화된 메시지";
         }
+
+        const needsDecrypt = Boolean(newRow.is_encrypted && newRow.encrypted_content && newRow.iv && roomKey);
         
         return [...prev, {
           id: newRow.id,
@@ -220,6 +264,7 @@ export function DMThreadClient({
           content,
           created_at: newRow.created_at,
           is_encrypted: newRow.is_encrypted ?? false,
+          decrypted_checked: !needsDecrypt,
           image_url: toPublicUrl(newRow.image_url),  // 경로를 public URL로 변환
         }];
       });
@@ -251,14 +296,90 @@ export function DMThreadClient({
   // Scroll to bottom when messages change
   useEffect(() => {
     if (atBottom) {
-      scrollToBottom("smooth");
-      setHasNewIncoming(false);
+      scrollToBottom("auto");
     }
   }, [messages, atBottom, scrollToBottom]);
 
   useEffect(() => {
     scrollToBottom("auto");
   }, [scrollToBottom]);
+
+  useEffect(() => {
+    if (!showMenu) return;
+
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target as Node | null;
+      if (menuRef.current && target && !menuRef.current.contains(target)) {
+        setShowMenu(false);
+      }
+    };
+
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setShowMenu(false);
+      }
+    };
+
+    document.addEventListener("pointerdown", handlePointerDown);
+    document.addEventListener("keydown", handleEscape);
+
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+      document.removeEventListener("keydown", handleEscape);
+    };
+  }, [showMenu]);
+
+  useEffect(() => {
+    if (!roomKey) return;
+
+    const targets = messages.filter(
+      (message) =>
+        message.is_encrypted &&
+        message.encrypted_content &&
+        message.iv &&
+        !message.decrypted_checked
+    );
+
+    if (targets.length === 0) return;
+
+    // 대화가 길어질 때 한 번에 전체 복호화를 수행하면 탭이 멈출 수 있어 배치 처리한다.
+    const BATCH_SIZE = 30;
+    const batch = targets.slice(0, BATCH_SIZE);
+    let canceled = false;
+
+    void (async () => {
+      const resolved: Array<{ id: string; content: string; decrypt_failed: boolean }> = [];
+
+      for (const message of batch) {
+        if (canceled) return;
+        try {
+          const content = await decryptWithRoomKeyClient(roomKey, message.encrypted_content!, message.iv!);
+          resolved.push({ id: message.id, content, decrypt_failed: false });
+        } catch {
+          resolved.push({ id: message.id, content: "복호화 실패", decrypt_failed: true });
+        }
+      }
+
+      if (canceled) return;
+      setMessages((prev) =>
+        prev.map((message) => {
+          const found = resolved.find((item) => item.id === message.id);
+          return found
+            ? {
+                ...message,
+                content: found.content,
+                decrypt_failed: found.decrypt_failed,
+                decrypted_checked: true,
+              }
+            : message;
+        })
+      );
+    })();
+
+    return () => {
+      canceled = true;
+    };
+  }, [roomKey, messages]);
 
   useEffect(() => {
     const sharedIds = Array.from(
@@ -341,8 +462,22 @@ export function DMThreadClient({
 
   const sendMessageInternal = async (contentParam: string, imageParam: File | null) => {
     const content = contentParam.trim();
-    if (!content && !imageParam) return;
-    if (isPending || !canSend || uploadingImage) return;
+    if (!content && !imageParam) {
+      setSendError("메시지를 입력해주세요");
+      return;
+    }
+    if (isSending) {
+      setSendError("이전 메시지를 전송 중입니다. 잠시 후 다시 시도해주세요");
+      return;
+    }
+    if (!canSend) {
+      setSendError("상대방이 DM 요청을 수락해야 메시지를 보낼 수 있습니다");
+      return;
+    }
+    if (uploadingImage) {
+      setSendError("이미지 업로드가 끝난 뒤 다시 시도해주세요");
+      return;
+    }
 
     setSendError(null);
 
@@ -353,8 +488,16 @@ export function DMThreadClient({
       const formData = new FormData();
       formData.append("file", imageParam);
 
-      const uploadResult = await uploadDMImage(threadId, formData);
-      setUploadingImage(false);
+      let uploadResult: Awaited<ReturnType<typeof uploadDMImage>>;
+      try {
+        uploadResult = await withTimeout(
+          uploadDMImage(threadId, formData),
+          12000,
+          "이미지 업로드 시간이 초과되었습니다. 다시 시도해주세요"
+        );
+      } finally {
+        setUploadingImage(false);
+      }
 
       if (uploadResult.error) {
         setSendError(uploadResult.error);
@@ -365,61 +508,78 @@ export function DMThreadClient({
       handleCancelImage();
     }
 
-    const tempMessage: Message = {
-      id: `temp-${Date.now()}`,
-      sender_id: currentUserId,
-      content: content || "",
-      created_at: new Date().toISOString(),
-      image_url: imageUrl,
-      is_pending: true,
-    };
-    setMessages((prev) => [...prev, tempMessage]);
-    setNewMessage("");
     setRetryPayload(null);
-    scrollToBottom();
 
-    startTransition(async () => {
-      try {
-        let encryptedData = undefined;
+    setIsSending(true);
+    let forceUnlocked = false;
+    const failSafeTimer = window.setTimeout(() => {
+      forceUnlocked = true;
+      setRetryPayload({ content, image: imageParam });
+      setSendError("전송 응답이 지연되어 취소되었습니다. 다시 시도해주세요");
+      setIsSending(false);
+    }, 15000);
 
-        if (roomKey && content) {
-          const encrypted = await encryptWithRoomKey(roomKey, content);
-          encryptedData = {
-            encryptedContent: encrypted.encryptedContent,
-            encryptedKey: "",
-            iv: encrypted.iv,
-          };
-        }
+    try {
+      let encryptedData = undefined;
 
-        const result = await sendMessage(threadId, content || "", encryptedData, imagePath);
+      if (roomKey && content) {
+        const encrypted = await withTimeout(
+          encryptWithRoomKey(roomKey, content),
+          8000,
+          "메시지 암호화 시간이 초과되었습니다. 다시 시도해주세요"
+        );
+        encryptedData = {
+          encryptedContent: encrypted.encryptedContent,
+          encryptedKey: "",
+          iv: encrypted.iv,
+        };
+      }
 
-        if (result.error) {
-          setMessages((prev) => prev.filter((m) => m.id !== tempMessage.id));
-          setRetryPayload({ content, image: imageParam });
-          setSendError(result.error);
-        } else if (result.message) {
-          setMessages((prev) =>
-            prev.map((m) =>
-              m.id === tempMessage.id
-                ? {
-                    ...result.message!,
-                    content: content || "",
-                    image_url: imageUrl ?? result.message!.image_url,
-                  }
-                : m
-            )
-          );
-        }
-      } catch {
-        setMessages((prev) => prev.filter((m) => m.id !== tempMessage.id));
+      const result = await withTimeout(
+        sendMessage(threadId, content || "", encryptedData, imagePath),
+        12000,
+        "메시지 전송 시간이 초과되었습니다. 다시 시도해주세요"
+      ) as Awaited<ReturnType<typeof sendMessage>>;
+
+      if ("error" in result && result.error) {
         setRetryPayload({ content, image: imageParam });
+        setSendError(result.error);
+      } else if ("message" in result && result.message) {
+        if (inputRef.current) {
+          inputRef.current.value = "";
+          inputRef.current.style.height = "48px";
+        }
+        setRetryPayload(null);
+        setMessages((prev) =>
+          [
+            ...prev,
+            {
+              ...result.message!,
+              content: content || "",
+              image_url: imageUrl ?? result.message!.image_url,
+            },
+          ]
+        );
+        scrollToBottom();
+      }
+    } catch (error) {
+      setRetryPayload({ content, image: imageParam });
+      if (error instanceof Error && error.message) {
+        setSendError(error.message);
+      } else {
         setSendError("메시지 전송 실패");
       }
-    });
+    } finally {
+      clearTimeout(failSafeTimer);
+      if (!forceUnlocked) {
+        setIsSending(false);
+      }
+    }
   };
 
   const handleSend = async () => {
-    await sendMessageInternal(newMessage, selectedImage);
+    const currentDraft = inputRef.current?.value ?? "";
+    await sendMessageInternal(currentDraft, selectedImage);
   };
 
   const handleRetrySend = async () => {
@@ -434,10 +594,7 @@ export function DMThreadClient({
     }
   };
 
-  const handleComposerChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    const value = e.target.value;
-    setNewMessage(value);
-
+  const handleComposerChange = () => {
     if (!inputRef.current) return;
     inputRef.current.style.height = "auto";
     const nextHeight = Math.min(inputRef.current.scrollHeight, 144);
@@ -468,6 +625,123 @@ export function DMThreadClient({
     if (days < 7) return `${days}일 전`;
     return date.toLocaleDateString("ko-KR", { month: "short", day: "numeric" });
   };
+
+  const renderedMessages = useMemo(
+    () =>
+      messages.map((message) => {
+        const isOwn = message.sender_id === currentUserId;
+        const isEncrypted = message.is_encrypted;
+        const sharedItem = message.content ? parseSharedItemMessage(message.content) : null;
+        const sharedPreview = sharedItem?.itemId ? sharedItemPreviews[sharedItem.itemId] : null;
+
+        return (
+          <div
+            key={message.id}
+            className={`flex ${isOwn ? "justify-end" : "justify-start"}`}
+          >
+            <div
+              className={`max-w-[75%] rounded-2xl px-4 py-2 ${
+                isOwn
+                  ? "bg-neutral-900 text-white dark:bg-neutral-900 dark:text-white"
+                  : "bg-neutral-100 text-neutral-900 dark:bg-neutral-800 dark:text-white"
+              }`}
+            >
+              {message.image_url && (
+                <img
+                  src={message.image_url}
+                  alt="첨부 이미지"
+                  loading="lazy"
+                  decoding="async"
+                  className="mb-2 max-w-full rounded-lg"
+                  style={{ maxHeight: "200px" }}
+                />
+              )}
+              {sharedItem ? (
+                <Link
+                  href={sharedItem.path || sharedItem.url}
+                  className={`mb-1 block rounded-2xl border px-3 py-3 transition-colors ${
+                    isOwn
+                      ? "border-white/25 bg-white/10 text-white shadow-sm hover:bg-white/15"
+                      : "border-neutral-300 bg-white text-slate-900 shadow-sm hover:bg-neutral-50 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-100 dark:hover:bg-neutral-800"
+                  }`}
+                >
+                  <p className={`text-[10px] font-semibold uppercase tracking-[0.12em] ${isOwn ? "text-white/70" : "text-neutral-500 dark:text-neutral-400"}`}>
+                    Shared Item
+                  </p>
+                  <div className="mt-2 flex items-center gap-2.5">
+                    {sharedPreview?.image_url ? (
+                      <img
+                        src={sharedPreview.image_url}
+                        alt={sharedPreview.title}
+                        loading="lazy"
+                        decoding="async"
+                        className="h-14 w-14 rounded-lg object-cover"
+                      />
+                    ) : (
+                      <div className={`flex h-14 w-14 items-center justify-center rounded-lg text-lg ${
+                        isOwn ? "bg-white/20" : "bg-black/10 dark:bg-white/15"
+                      }`}>
+                        📦
+                      </div>
+                    )}
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-semibold leading-snug">
+                        {sharedPreview?.title ?? sharedItem.title}
+                      </p>
+                    </div>
+                  </div>
+                  {(sharedPreview?.brand || sharedPreview?.category) && (
+                    <div className="mt-2 flex gap-1.5">
+                      {sharedPreview.brand && (
+                        <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${
+                          isOwn ? "bg-white/20 text-white" : "bg-black/10 dark:bg-white/15"
+                        }`}>
+                          {sharedPreview.brand}
+                        </span>
+                      )}
+                      {sharedPreview.category && (
+                        <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${
+                          isOwn ? "bg-white/20 text-white" : "bg-black/10 dark:bg-white/15"
+                        }`}>
+                          {sharedPreview.category}
+                        </span>
+                      )}
+                    </div>
+                  )}
+                  <div className="mt-2 text-right">
+                    <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-[10px] font-semibold ${
+                      isOwn
+                        ? "bg-white/90 text-neutral-900"
+                        : "bg-neutral-900 text-white dark:bg-neutral-100 dark:text-neutral-900"
+                    }`}>
+                      아이템 보기
+                    </span>
+                  </div>
+                </Link>
+              ) : message.content && (
+                <p className="whitespace-pre-wrap break-words text-sm">
+                  {message.content}
+                </p>
+              )}
+              <p
+                className={`mt-1 flex items-center justify-end gap-1 text-[10px] ${
+                  isOwn
+                    ? "text-neutral-400 dark:text-neutral-500"
+                    : "text-neutral-500 dark:text-neutral-400"
+                }`}
+              >
+                {isEncrypted && (
+                  <Lock className="h-2.5 w-2.5" />
+                )}
+                {message.is_pending && <Loader2 className="h-2.5 w-2.5 animate-spin" />}
+                {formatTime(message.created_at)}
+              </p>
+            </div>
+          </div>
+        );
+      }),
+    [messages, currentUserId, sharedItemPreviews]
+  );
 
   return (
     <PageShell
@@ -501,7 +775,7 @@ export function DMThreadClient({
           </Link>
           
           {/* 메뉴 드롭다운 */}
-          <div className="relative">
+          <div ref={menuRef} className="relative">
             <button
               type="button"
               onClick={() => setShowMenu(!showMenu)}
@@ -511,26 +785,20 @@ export function DMThreadClient({
             </button>
             
             {showMenu && (
-              <>
-                <div 
-                  className="fixed inset-0 z-40" 
-                  onClick={() => setShowMenu(false)}
-                />
-                <div className="absolute right-0 top-full z-50 mt-1 w-40 overflow-hidden rounded-lg border border-neutral-200 bg-white shadow-lg dark:border-neutral-700 dark:bg-neutral-900">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setShowMenu(false);
-                      handleLeave();
-                    }}
-                    disabled={isLeaving}
-                    className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-red-600 hover:bg-red-50 disabled:opacity-50 dark:text-red-400 dark:hover:bg-red-900/20"
-                  >
-                    <LogOut className="h-4 w-4" />
-                    {isLeaving ? "나가는 중..." : "대화 나가기"}
-                  </button>
-                </div>
-              </>
+              <div className="absolute right-0 top-full z-50 mt-1 w-40 overflow-hidden rounded-lg border border-neutral-200 bg-white shadow-lg dark:border-neutral-700 dark:bg-neutral-900">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowMenu(false);
+                    handleLeave();
+                  }}
+                  disabled={isLeaving}
+                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-red-600 hover:bg-red-50 disabled:opacity-50 dark:text-red-400 dark:hover:bg-red-900/20"
+                >
+                  <LogOut className="h-4 w-4" />
+                  {isLeaving ? "나가는 중..." : "대화 나가기"}
+                </button>
+              </div>
             )}
           </div>
         </div>
@@ -549,115 +817,7 @@ export function DMThreadClient({
             </div>
           ) : (
             <>
-              {messages.map((message) => {
-                const isOwn = message.sender_id === currentUserId;
-                const isEncrypted = message.is_encrypted;
-                const sharedItem = message.content ? parseSharedItemMessage(message.content) : null;
-                const sharedPreview = sharedItem?.itemId ? sharedItemPreviews[sharedItem.itemId] : null;
-                
-                return (
-                  <div
-                    key={message.id}
-                    className={`flex ${isOwn ? "justify-end" : "justify-start"}`}
-                  >
-                    <div
-                      className={`max-w-[75%] rounded-2xl px-4 py-2 ${
-                        isOwn
-                          ? "bg-neutral-900 text-white dark:bg-neutral-900 dark:text-white"
-                          : "bg-neutral-100 text-neutral-900 dark:bg-neutral-800 dark:text-white"
-                      }`}
-                    >
-                      {/* 이미지 표시 */}
-                      {message.image_url && (
-                        <img 
-                          src={message.image_url} 
-                          alt="첨부 이미지"
-                          className="mb-2 max-w-full rounded-lg"
-                          style={{ maxHeight: "200px" }}
-                        />
-                      )}
-                      {sharedItem ? (
-                        <Link
-                          href={sharedItem.path || sharedItem.url}
-                          className={`mb-1 block rounded-2xl border px-3 py-3 transition-colors ${
-                            isOwn
-                              ? "border-white/25 bg-white/10 text-white shadow-sm hover:bg-white/15"
-                              : "border-neutral-300 bg-white text-slate-900 shadow-sm hover:bg-neutral-50 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-100 dark:hover:bg-neutral-800"
-                          }`}
-                        >
-                          <p className={`text-[10px] font-semibold uppercase tracking-[0.12em] ${isOwn ? "text-white/70" : "text-neutral-500 dark:text-neutral-400"}`}>
-                            Shared Item
-                          </p>
-                          <div className="mt-2 flex items-center gap-2.5">
-                            {sharedPreview?.image_url ? (
-                              <img
-                                src={sharedPreview.image_url}
-                                alt={sharedPreview.title}
-                                className="h-14 w-14 rounded-lg object-cover"
-                              />
-                            ) : (
-                              <div className={`flex h-14 w-14 items-center justify-center rounded-lg text-lg ${
-                                isOwn ? "bg-white/20" : "bg-black/10 dark:bg-white/15"
-                              }`}>
-                                📦
-                              </div>
-                            )}
-                            <div className="min-w-0 flex-1">
-                              <p className="truncate text-sm font-semibold leading-snug">
-                                {sharedPreview?.title ?? sharedItem.title}
-                              </p>
-                            </div>
-                          </div>
-                          {(sharedPreview?.brand || sharedPreview?.category) && (
-                            <div className="mt-2 flex gap-1.5">
-                              {sharedPreview.brand && (
-                                <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${
-                                  isOwn ? "bg-white/20 text-white" : "bg-black/10 dark:bg-white/15"
-                                }`}>
-                                  {sharedPreview.brand}
-                                </span>
-                              )}
-                              {sharedPreview.category && (
-                                <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${
-                                  isOwn ? "bg-white/20 text-white" : "bg-black/10 dark:bg-white/15"
-                                }`}>
-                                  {sharedPreview.category}
-                                </span>
-                              )}
-                            </div>
-                          )}
-                          <div className="mt-2 text-right">
-                            <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-[10px] font-semibold ${
-                              isOwn
-                                ? "bg-white/90 text-neutral-900"
-                                : "bg-neutral-900 text-white dark:bg-neutral-100 dark:text-neutral-900"
-                            }`}>
-                              아이템 보기
-                            </span>
-                          </div>
-                        </Link>
-                      ) : message.content && (
-                        <p className="whitespace-pre-wrap break-words text-sm">
-                          {message.content}
-                        </p>
-                      )}
-                      <p
-                        className={`mt-1 flex items-center justify-end gap-1 text-[10px] ${
-                          isOwn
-                            ? "text-neutral-400 dark:text-neutral-500"
-                            : "text-neutral-500 dark:text-neutral-400"
-                        }`}
-                      >
-                        {isEncrypted && (
-                          <Lock className="h-2.5 w-2.5" />
-                        )}
-                        {message.is_pending && <Loader2 className="h-2.5 w-2.5 animate-spin" />}
-                        {formatTime(message.created_at)}
-                      </p>
-                    </div>
-                  </div>
-                );
-              })}
+              {renderedMessages}
               <div ref={messagesEndRef} />
             </>
           )}
@@ -709,7 +869,7 @@ export function DMThreadClient({
           <button
             type="button"
             onClick={() => fileInputRef.current?.click()}
-            disabled={isPending || !canSend || uploadingImage}
+            disabled={isSending || !canSend || uploadingImage}
             className="flex items-center justify-center rounded-xl border border-neutral-200 bg-white px-3 py-3 text-neutral-600 transition-colors hover:bg-neutral-50 disabled:opacity-50 dark:border-neutral-800 dark:bg-black dark:text-neutral-400 dark:hover:bg-neutral-900"
           >
             {uploadingImage ? (
@@ -721,18 +881,17 @@ export function DMThreadClient({
           
           <textarea
             ref={inputRef}
-            value={newMessage}
             onChange={handleComposerChange}
             onKeyDown={handleKeyDown}
             placeholder="메시지 입력..."
-            disabled={isPending || !canSend || uploadingImage}
+            disabled={isSending || !canSend || uploadingImage}
             rows={1}
             className="max-h-36 min-h-[48px] flex-1 resize-none rounded-xl border border-neutral-200 bg-white px-4 py-3 text-sm outline-none placeholder:text-neutral-400 focus:border-neutral-300 disabled:opacity-50 dark:border-neutral-800 dark:bg-black dark:focus:border-neutral-700"
           />
           <button
             type="button"
             onClick={handleSend}
-            disabled={(!newMessage.trim() && !selectedImage) || isPending || !canSend || uploadingImage}
+            disabled={isSending || !canSend || uploadingImage}
             className="flex items-center justify-center rounded-xl bg-neutral-900 px-4 py-3 text-white transition-colors hover:bg-neutral-800 disabled:opacity-50 dark:bg-white dark:text-black dark:hover:bg-neutral-200"
           >
             {uploadingImage ? (
@@ -745,11 +904,6 @@ export function DMThreadClient({
         {!canSend && (
           <p className="text-xs text-amber-600 dark:text-amber-400">
             상대방이 DM 요청을 수락하면 메시지를 보낼 수 있습니다.
-          </p>
-        )}
-        {newMessage.trim().length > 1800 && (
-          <p className="text-right text-[11px] text-neutral-500 dark:text-neutral-400">
-            {newMessage.trim().length}/2000
           </p>
         )}
         {sendError && (

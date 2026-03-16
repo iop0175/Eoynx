@@ -350,6 +350,61 @@ export async function decryptMessage(
 // =====================================================
 
 const PRIVATE_KEY_STORAGE_PREFIX = "eoynx_dm_private_key_";
+const PRIVATE_KEY_DB_NAME = "eoynx-crypto";
+const PRIVATE_KEY_STORE_NAME = "private-keys";
+
+function openPrivateKeyDB(): Promise<IDBDatabase> {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(PRIVATE_KEY_DB_NAME, 1);
+
+    request.onupgradeneeded = () => {
+      const db = request.result;
+      if (!db.objectStoreNames.contains(PRIVATE_KEY_STORE_NAME)) {
+        db.createObjectStore(PRIVATE_KEY_STORE_NAME);
+      }
+    };
+
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error ?? new Error("Failed to open IndexedDB"));
+  });
+}
+
+async function putPrivateKeyJwk(userId: string, jwkJson: string): Promise<void> {
+  const db = await openPrivateKeyDB();
+  await new Promise<void>((resolve, reject) => {
+    const tx = db.transaction(PRIVATE_KEY_STORE_NAME, "readwrite");
+    const store = tx.objectStore(PRIVATE_KEY_STORE_NAME);
+    const req = store.put(jwkJson, PRIVATE_KEY_STORAGE_PREFIX + userId);
+    req.onsuccess = () => resolve();
+    req.onerror = () => reject(req.error ?? new Error("Failed to save private key"));
+  });
+  db.close();
+}
+
+async function getPrivateKeyJwk(userId: string): Promise<string | null> {
+  const db = await openPrivateKeyDB();
+  const value = await new Promise<string | null>((resolve, reject) => {
+    const tx = db.transaction(PRIVATE_KEY_STORE_NAME, "readonly");
+    const store = tx.objectStore(PRIVATE_KEY_STORE_NAME);
+    const req = store.get(PRIVATE_KEY_STORAGE_PREFIX + userId);
+    req.onsuccess = () => resolve((req.result as string | undefined) ?? null);
+    req.onerror = () => reject(req.error ?? new Error("Failed to load private key"));
+  });
+  db.close();
+  return value;
+}
+
+async function deletePrivateKeyJwk(userId: string): Promise<void> {
+  const db = await openPrivateKeyDB();
+  await new Promise<void>((resolve, reject) => {
+    const tx = db.transaction(PRIVATE_KEY_STORE_NAME, "readwrite");
+    const store = tx.objectStore(PRIVATE_KEY_STORE_NAME);
+    const req = store.delete(PRIVATE_KEY_STORAGE_PREFIX + userId);
+    req.onsuccess = () => resolve();
+    req.onerror = () => reject(req.error ?? new Error("Failed to clear private key"));
+  });
+  db.close();
+}
 
 /**
  * 공개키를 JWK JSON 문자열로 내보내기
@@ -365,7 +420,7 @@ export async function exportPublicKey(publicKey: CryptoKey): Promise<string> {
 export async function savePrivateKey(userId: string, privateKey: CryptoKey): Promise<void> {
   if (typeof window !== "undefined") {
     const jwk = await window.crypto.subtle.exportKey("jwk", privateKey);
-    localStorage.setItem(PRIVATE_KEY_STORAGE_PREFIX + userId, JSON.stringify(jwk));
+    await putPrivateKeyJwk(userId, JSON.stringify(jwk));
   }
 }
 
@@ -376,8 +431,8 @@ export async function loadPrivateKey(userId: string): Promise<CryptoKey | null> 
   if (typeof window === "undefined") {
     return null;
   }
-  
-  const stored = localStorage.getItem(PRIVATE_KEY_STORAGE_PREFIX + userId);
+
+  const stored = await getPrivateKeyJwk(userId);
   if (!stored) {
     return null;
   }
@@ -405,18 +460,19 @@ export async function loadPrivateKey(userId: string): Promise<CryptoKey | null> 
  */
 export function clearPrivateKey(userId: string): void {
   if (typeof window !== "undefined") {
-    localStorage.removeItem(PRIVATE_KEY_STORAGE_PREFIX + userId);
+    void deletePrivateKeyJwk(userId);
   }
 }
 
 /**
  * 비밀키 존재 여부 확인
  */
-export function hasPrivateKey(userId: string): boolean {
+export async function hasPrivateKey(userId: string): Promise<boolean> {
   if (typeof window === "undefined") {
     return false;
   }
-  return localStorage.getItem(PRIVATE_KEY_STORAGE_PREFIX + userId) !== null;
+  const stored = await getPrivateKeyJwk(userId);
+  return stored !== null;
 }
 
 // =====================================================

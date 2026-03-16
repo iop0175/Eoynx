@@ -135,13 +135,13 @@ export async function likeItem(itemId: string) {
   // Get item owner for notification
   const { data: item } = await supabase
     .from("items")
-    .select("user_id")
+    .select("owner_id")
     .eq("id", itemId)
     .single();
 
-  if (item && item.user_id !== user.id) {
+  if (item && item.owner_id !== user.id) {
     await createNotification({
-      userId: item.user_id,
+      userId: item.owner_id,
       type: "like",
       actorId: user.id,
       itemId,

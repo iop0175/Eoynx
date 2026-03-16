@@ -18,6 +18,7 @@ export function ItemCard({
   return (
     <Link
       href={`/i/${id}`}
+      prefetch={false}
       className="flex items-center justify-between gap-3 rounded-xl border border-neutral-200 bg-white px-4 py-3 text-sm hover:bg-neutral-50 dark:border-neutral-800 dark:bg-black dark:hover:bg-neutral-900"
     >
       <div className="flex items-center gap-3">

@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from "react-native";
 import { useNavigation } from "@react-navigation/native";
 import { useI18n } from "../i18n";
+import { getRequestErrorMessage, runRequestWithPolicy } from "../lib/requestPolicy";
 import { supabase } from "../lib/supabase";
 import { useThemePreference } from "../theme/ThemeContext";
 import { webUi } from "../theme/webUi";
@@ -16,6 +17,7 @@ type BlockedUser = {
 export function SettingsScreen() {
   const navigation = useNavigation<any>();
   const { language, setLanguage, t } = useI18n();
+  const requestLanguage = "ko" as const;
   const { themePreference, setThemePreference } = useThemePreference();
   const [loading, setLoading] = useState(true);
   const [savingDmOpen, setSavingDmOpen] = useState(false);
@@ -32,36 +34,40 @@ export function SettingsScreen() {
 
   const loadSettings = async () => {
     setLoading(true);
-    const { data: authData, error: authError } = await supabase.auth.getUser();
+    const { data: authData, error: authError } = await runRequestWithPolicy(() => supabase.auth.getUser());
     if (authError || !authData.user) {
       setLoading(false);
-      Alert.alert("Auth Error", authError?.message ?? "No authenticated user.");
+      Alert.alert("Auth Error", getRequestErrorMessage(requestLanguage, authError, "No authenticated user."));
       return;
     }
 
     const uid = authData.user.id;
     setUserId(uid);
 
-    const { data: profileRes, error: profileErr } = await supabase
-      .from("profiles")
-      .select("dm_open")
-      .eq("id", uid)
-      .maybeSingle();
+    const { data: profileRes, error: profileErr } = await runRequestWithPolicy(() =>
+      supabase
+        .from("profiles")
+        .select("dm_open")
+        .eq("id", uid)
+        .maybeSingle()
+    );
 
     if (!profileErr) {
       setDmOpen(profileRes?.dm_open ?? true);
     }
 
-    const { data: blocksRes, error: blocksErr } = await supabase
-      .from("blocks")
-      .select("blocked_id,created_at")
-      .eq("blocker_id", uid)
-      .order("created_at", { ascending: false })
-      .limit(100);
+    const { data: blocksRes, error: blocksErr } = await runRequestWithPolicy(() =>
+      supabase
+        .from("blocks")
+        .select("blocked_id,created_at")
+        .eq("blocker_id", uid)
+        .order("created_at", { ascending: false })
+        .limit(100)
+    );
 
     if (blocksErr) {
       setLoading(false);
-      Alert.alert("Load Error", blocksErr.message);
+      Alert.alert("Load Error", getRequestErrorMessage(requestLanguage, blocksErr));
       return;
     }
 
@@ -72,14 +78,16 @@ export function SettingsScreen() {
       return;
     }
 
-    const { data: profilesRes, error: profilesErr } = await supabase
-      .from("profiles")
-      .select("id,handle,display_name")
-      .in("id", blockedIds);
+    const { data: profilesRes, error: profilesErr } = await runRequestWithPolicy(() =>
+      supabase
+        .from("profiles")
+        .select("id,handle,display_name")
+        .in("id", blockedIds)
+    );
 
     if (profilesErr) {
       setLoading(false);
-      Alert.alert("Load Error", profilesErr.message);
+      Alert.alert("Load Error", getRequestErrorMessage(requestLanguage, profilesErr));
       return;
     }
 
@@ -101,19 +109,23 @@ export function SettingsScreen() {
     if (!userId) return;
     setDmOpen(next);
     setSavingDmOpen(true);
-    const { error } = await supabase.from("profiles").update({ dm_open: next }).eq("id", userId);
+    const { error } = await runRequestWithPolicy(() =>
+      supabase.from("profiles").update({ dm_open: next }).eq("id", userId)
+    );
     setSavingDmOpen(false);
     if (error) {
       setDmOpen(!next);
-      Alert.alert("Update Error", error.message);
+      Alert.alert("Update Error", getRequestErrorMessage(requestLanguage, error));
     }
   };
 
   const unblockUser = async (blockedId: string) => {
     if (!userId) return;
-    const { error } = await supabase.from("blocks").delete().eq("blocker_id", userId).eq("blocked_id", blockedId);
+    const { error } = await runRequestWithPolicy(() =>
+      supabase.from("blocks").delete().eq("blocker_id", userId).eq("blocked_id", blockedId)
+    );
     if (error) {
-      Alert.alert("Unblock Error", error.message);
+      Alert.alert("Unblock Error", getRequestErrorMessage(requestLanguage, error));
       return;
     }
     setBlockedUsers((prev) => prev.filter((u) => u.id !== blockedId));
@@ -128,9 +140,9 @@ export function SettingsScreen() {
     });
     if (!confirmed) return;
 
-    const { error } = await supabase.auth.signOut();
+    const { error } = await runRequestWithPolicy(() => supabase.auth.signOut());
     if (error) {
-      Alert.alert("Sign Out Error", error.message);
+      Alert.alert("Sign Out Error", getRequestErrorMessage(requestLanguage, error));
     }
   };
 
@@ -148,7 +160,7 @@ export function SettingsScreen() {
     if (!confirmed) return;
 
     setDeletingAccount(true);
-    const { error: deleteError } = await supabase.rpc("delete_my_account");
+    const { error: deleteError } = await runRequestWithPolicy(() => supabase.rpc("delete_my_account"));
     setDeletingAccount(false);
 
     if (deleteError) {
@@ -159,9 +171,9 @@ export function SettingsScreen() {
       return;
     }
 
-    const { error: signOutError } = await supabase.auth.signOut();
+    const { error: signOutError } = await runRequestWithPolicy(() => supabase.auth.signOut());
     if (signOutError) {
-      Alert.alert("Sign Out Error", signOutError.message);
+      Alert.alert("Sign Out Error", getRequestErrorMessage(requestLanguage, signOutError));
       return;
     }
     Alert.alert("Success", t("settings.deleteAccountSuccess"));

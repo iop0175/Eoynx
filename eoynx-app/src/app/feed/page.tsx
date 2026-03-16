@@ -10,6 +10,10 @@ export const metadata = {
   robots: NOINDEX,
 };
 
+// Feed includes per-user interaction state, so avoid route-level caching.
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 function FeedLoadingFallback() {
   return <FeedSkeleton count={3} />;
 }

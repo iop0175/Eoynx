@@ -1,16 +1,34 @@
 import { StatusBar } from "expo-status-bar";
 import { useEffect, useState } from "react";
-import { ActivityIndicator, Alert, Appearance, DevSettings, StyleSheet, Text, View } from "react-native";
+import {
+  ActivityIndicator,
+  Alert,
+  Appearance,
+  DevSettings,
+  InteractionManager,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
 import * as Linking from "expo-linking";
 import * as Notifications from "expo-notifications";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import type { Session } from "@supabase/supabase-js";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { createNavigationContainerRef } from "@react-navigation/native";
+import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { I18nProvider } from "./src/i18n";
 import type { Item } from "./src/types/item";
 import { registerPushTokenForUser } from "./src/lib/pushNotifications";
+import {
+  exportPublicKeyJwk,
+  generateEncryptionKeyPair,
+  hasPrivateKey,
+  loadPrivateKey,
+  savePrivateKey,
+} from "./src/lib/encryptionKeys";
 import { hasPrivacyConsent, isLikelyNewGoogleUser } from "./src/lib/privacyConsent";
+import { getRequestErrorMessage, type ApiErrorLike, runRequestWithPolicy } from "./src/lib/requestPolicy";
 import { supabase } from "./src/lib/supabase";
 import { LandingVideo } from "./src/components/LandingVideo";
 import { PrivacyConsentGateScreen } from "./src/screens/auth/PrivacyConsentGateScreen";
@@ -19,14 +37,16 @@ import { applyWebUiTheme, type AppTheme, webUi } from "./src/theme/webUi";
 import type { RootStackParamList } from "./src/navigation/types";
 
 const THEME_STORAGE_KEY = "eoynx.theme";
+const LANDING_SEEN_STORAGE_KEY = "eoynx.landing-seen";
 const navigationRef = createNavigationContainerRef<RootStackParamList>();
 
+const getSystemTheme = (): AppTheme => (Appearance.getColorScheme() === "dark" ? "dark" : "light");
+
 export default function App() {
-  const [themeReady, setThemeReady] = useState(false);
   const [themePreference, setThemePreferenceState] = useState<ThemePreference>("system");
-  const [resolvedTheme, setResolvedTheme] = useState<AppTheme>("light");
+  const [resolvedTheme, setResolvedTheme] = useState<AppTheme>(getSystemTheme);
   const [initializing, setInitializing] = useState(true);
-  const [showLanding, setShowLanding] = useState(true);
+  const [showLanding, setShowLanding] = useState(false);
   const [session, setSession] = useState<Session | null>(null);
   const [needsConsentGate, setNeedsConsentGate] = useState(false);
 
@@ -130,19 +150,23 @@ export default function App() {
     const resolveTheme = (pref: ThemePreference): AppTheme => {
       if (pref === "light") return "light";
       if (pref === "dark") return "dark";
-      return Appearance.getColorScheme() === "dark" ? "dark" : "light";
+      return getSystemTheme();
     };
 
     const initTheme = async () => {
-      const stored = await AsyncStorage.getItem(THEME_STORAGE_KEY);
+      applyWebUiTheme(resolveTheme("system"));
+      const [storedTheme, landingSeen] = await Promise.all([
+        AsyncStorage.getItem(THEME_STORAGE_KEY),
+        AsyncStorage.getItem(LANDING_SEEN_STORAGE_KEY),
+      ]);
       const pref: ThemePreference =
-        stored === "light" || stored === "dark" || stored === "system" ? stored : "system";
+        storedTheme === "light" || storedTheme === "dark" || storedTheme === "system" ? storedTheme : "system";
       const nextResolved = resolveTheme(pref);
       applyWebUiTheme(nextResolved);
       if (!active) return;
       setThemePreferenceState(pref);
       setResolvedTheme(nextResolved);
-      setThemeReady(true);
+      setShowLanding(landingSeen !== "1");
     };
 
     void initTheme();
@@ -164,7 +188,7 @@ export default function App() {
     setThemePreferenceState(next);
     await AsyncStorage.setItem(THEME_STORAGE_KEY, next);
     const nextResolved: AppTheme =
-      next === "system" ? (Appearance.getColorScheme() === "dark" ? "dark" : "light") : next;
+      next === "system" ? getSystemTheme() : next;
     applyWebUiTheme(nextResolved);
     setResolvedTheme(nextResolved);
     if (__DEV__) {
@@ -179,19 +203,16 @@ export default function App() {
 
     const loadSession = async () => {
       try {
-        const timeout = new Promise<never>((_, reject) =>
-          setTimeout(() => reject(new Error("Session initialization timeout.")), 8000)
-        );
-        const result = await Promise.race([supabase.auth.getSession(), timeout]);
+        const result = await runRequestWithPolicy(() => supabase.auth.getSession(), { timeoutMs: 8000, retries: 1 });
         if (result.error) {
-          Alert.alert("Session Error", result.error.message);
+          Alert.alert("Session Error", getRequestErrorMessage("en", result.error, "Could not restore your session."));
         }
         if (mounted) {
           setSession(result.data.session);
         }
       } catch (error) {
         if (mounted) {
-          Alert.alert("Session Error", error instanceof Error ? error.message : "Unknown session error.");
+          Alert.alert("Session Error", getRequestErrorMessage("en", error as ApiErrorLike, "Could not restore your session."));
         }
       } finally {
         if (mounted) {
@@ -241,12 +262,16 @@ export default function App() {
 
       if (accessToken && refreshToken) {
         console.log("[OAuth] token callback detected");
-        const { error } = await supabase.auth.setSession({
-          access_token: accessToken,
-          refresh_token: refreshToken,
-        });
+        const { error } = await runRequestWithPolicy(
+          () =>
+            supabase.auth.setSession({
+              access_token: accessToken,
+              refresh_token: refreshToken,
+            }),
+          { timeoutMs: 10000, retries: 1 }
+        );
         if (error) {
-          Alert.alert("Google Sign-In Error", error.message);
+          Alert.alert("Google Sign-In Error", getRequestErrorMessage("en", error, "Could not complete sign-in."));
         }
         return;
       }
@@ -257,9 +282,12 @@ export default function App() {
       }
 
       console.log("[OAuth] code callback detected");
-      const { data, error } = await supabase.auth.exchangeCodeForSession(code);
+      const { data, error } = await runRequestWithPolicy(
+        () => supabase.auth.exchangeCodeForSession(code),
+        { timeoutMs: 10000, retries: 1 }
+      );
       if (error) {
-        Alert.alert("Google Sign-In Error", error.message);
+        Alert.alert("Google Sign-In Error", getRequestErrorMessage("en", error, "Could not complete sign-in."));
         return;
       }
       console.log("[OAuth] exchangeCodeForSession success =", !!data.session);
@@ -294,33 +322,89 @@ export default function App() {
       void routeFromPushData(response.notification.request.content.data as Record<string, unknown>);
     });
 
-    Notifications.getLastNotificationResponseAsync().then((response) => {
-      if (!response) return;
-      void routeFromPushData(response.notification.request.content.data as Record<string, unknown>);
+    const interaction = InteractionManager.runAfterInteractions(() => {
+      Notifications.getLastNotificationResponseAsync().then((response) => {
+        if (!response) return;
+        void routeFromPushData(response.notification.request.content.data as Record<string, unknown>);
+      });
     });
 
     return () => {
       sub.remove();
+      interaction.cancel();
     };
   }, [session]);
 
   useEffect(() => {
     const uid = session?.user?.id;
     if (!uid) return;
-    void registerPushTokenForUser(uid);
+    const interaction = InteractionManager.runAfterInteractions(() => {
+      void registerPushTokenForUser(uid);
+    });
+
+    return () => {
+      interaction.cancel();
+    };
   }, [session?.user?.id]);
 
-  if (!themeReady) {
-    return (
-      <View style={[styles.center, { backgroundColor: webUi.color.bg }]}>
-        <ActivityIndicator size="large" />
-        <Text style={[styles.loadingText, { color: webUi.color.textMuted }]}>Initializing app...</Text>
-      </View>
-    );
-  }
+  useEffect(() => {
+    const uid = session?.user?.id;
+    if (!uid) return;
+
+    let canceled = false;
+
+    const ensureEncryptionKeys = async () => {
+      try {
+        const hasKey = await hasPrivateKey(uid);
+        if (!hasKey) {
+          const keyPair = await generateEncryptionKeyPair();
+          await savePrivateKey(uid, keyPair.privateKey);
+          const publicKeyJwk = await exportPublicKeyJwk(keyPair.publicKey);
+          if (!canceled) {
+            await supabase.from("profiles").update({ encryption_public_key: publicKeyJwk }).eq("id", uid);
+          }
+          return;
+        }
+
+        const privateKey = await loadPrivateKey(uid);
+        if (!privateKey || canceled) return;
+
+        const { data: profile } = await supabase
+          .from("profiles")
+          .select("encryption_public_key")
+          .eq("id", uid)
+          .maybeSingle();
+
+        if (!profile?.encryption_public_key) {
+          const keyPair = await generateEncryptionKeyPair();
+          await savePrivateKey(uid, keyPair.privateKey);
+          const publicKeyJwk = await exportPublicKeyJwk(keyPair.publicKey);
+          if (!canceled) {
+            await supabase.from("profiles").update({ encryption_public_key: publicKeyJwk }).eq("id", uid);
+          }
+        }
+      } catch (error) {
+        console.log("[DM Crypto] mobile key init failed", error);
+      }
+    };
+
+    void ensureEncryptionKeys();
+
+    return () => {
+      canceled = true;
+    };
+  }, [session?.user?.id]);
 
   if (showLanding) {
-    return <LandingVideo theme={resolvedTheme} onDone={() => setShowLanding(false)} />;
+    return (
+      <LandingVideo
+        theme={resolvedTheme}
+        onDone={() => {
+          setShowLanding(false);
+          void AsyncStorage.setItem(LANDING_SEEN_STORAGE_KEY, "1");
+        }}
+      />
+    );
   }
 
   if (initializing) {
@@ -335,20 +419,22 @@ export default function App() {
   const { RootNavigator } = require("./src/navigation/RootNavigator");
 
   return (
-    <SafeAreaProvider>
-      <ThemeProvider value={{ themePreference, resolvedTheme, setThemePreference }}>
-        <I18nProvider>
-          <View style={[styles.screen, { backgroundColor: webUi.color.bg }]}>
-            <StatusBar backgroundColor={webUi.color.surface} style={resolvedTheme === "dark" ? "light" : "dark"} />
-            {session && needsConsentGate ? (
-              <PrivacyConsentGateScreen onCompleted={() => setNeedsConsentGate(false)} />
-            ) : (
-              <RootNavigator navigationRef={navigationRef} session={session} />
-            )}
-          </View>
-        </I18nProvider>
-      </ThemeProvider>
-    </SafeAreaProvider>
+    <GestureHandlerRootView style={styles.screen}>
+      <SafeAreaProvider>
+        <ThemeProvider value={{ themePreference, resolvedTheme, setThemePreference }}>
+          <I18nProvider>
+            <View style={[styles.screen, { backgroundColor: webUi.color.bg }]}>
+              <StatusBar backgroundColor={webUi.color.surface} style={resolvedTheme === "dark" ? "light" : "dark"} />
+              {session && needsConsentGate ? (
+                <PrivacyConsentGateScreen onCompleted={() => setNeedsConsentGate(false)} />
+              ) : (
+                <RootNavigator navigationRef={navigationRef} session={session} />
+              )}
+            </View>
+          </I18nProvider>
+        </ThemeProvider>
+      </SafeAreaProvider>
+    </GestureHandlerRootView>
   );
 }
 

@@ -126,6 +126,7 @@ export default async function ProfilePage({ params }: Props) {
       isFollowing={isFollowing}
       isLoggedIn={isLoggedIn}
       isBlocked={isBlocked}
+      currentUserId={user?.id ?? null}
       translations={{
         sortBy: t("sortBy"),
         sortLatest: t("sortLatest"),

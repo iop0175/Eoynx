@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, Alert, FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from "react-native";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { useI18n } from "../i18n";
-import { decryptWithRoomKey, importRoomKey } from "../lib/dmCrypto";
+import { getRequestErrorMessage, type ApiErrorLike, runRequestWithPolicy } from "../lib/requestPolicy";
 import { supabase } from "../lib/supabase";
 import type { FeedStackParamList } from "../navigation/types";
 import { webUi } from "../theme/webUi";
@@ -23,7 +23,6 @@ type NotificationRow = {
 
 type Actor = { id: string; handle: string; display_name: string | null };
 type ItemInfo = { id: string; title: string };
-type ThreadInfo = { id: string; room_key: string | null };
 type DmMessageRow = {
   thread_id: string;
   sender_id: string;
@@ -56,7 +55,7 @@ type ItemRow = {
 };
 
 export function NotificationsScreen({ navigation }: Props) {
-  const { language } = useI18n();
+  const { language, t } = useI18n();
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [notifications, setNotifications] = useState<EnrichedNotification[]>([]);
@@ -64,155 +63,178 @@ export function NotificationsScreen({ navigation }: Props) {
 
   const loadNotifications = useCallback(async () => {
     setLoading(true);
-    const { data: authData, error: authError } = await supabase.auth.getUser();
-    if (authError || !authData.user) {
-      setLoading(false);
-      Alert.alert("Auth Error", authError?.message ?? "No authenticated user.");
-      return;
-    }
+    try {
+      const { data: authData, error: authError } = await runRequestWithPolicy(() => supabase.auth.getUser(), {
+        timeoutMs: 8000,
+        retries: 1,
+      });
+      if (authError || !authData.user) {
+        Alert.alert(
+          language === "ko" ? "로그인 필요" : "Auth Required",
+          getRequestErrorMessage(
+            language,
+            authError,
+            language === "ko" ? "로그인 후 다시 시도해주세요." : "Please sign in and try again."
+          )
+        );
+        return;
+      }
 
-    const uid = authData.user.id;
-    setUserId(uid);
+      const uid = authData.user.id;
+      setUserId(uid);
 
-    const { data, error } = await supabase
-      .from("notifications")
-      .select("id,type,actor_id,item_id,thread_id,preview,read_at,created_at")
-      .eq("user_id", uid)
-      .order("created_at", { ascending: false })
-      .limit(50);
-
-    setLoading(false);
-
-    if (error) {
-      Alert.alert("Load Error", error.message);
-      return;
-    }
-
-    const rows = (data ?? []) as NotificationRow[];
-    const actorIds = Array.from(new Set(rows.map((n) => n.actor_id).filter(Boolean))) as string[];
-    const itemIds = Array.from(new Set(rows.map((n) => n.item_id).filter(Boolean))) as string[];
-
-    const dmThreadIds = Array.from(
-      new Set(rows.filter((n) => n.type === "dm" && n.thread_id).map((n) => n.thread_id as string))
-    );
-
-    const [actorsRes, itemsRes, threadsRes, dmMessagesRes] = await Promise.all([
-      actorIds.length > 0
-        ? supabase.from("profiles").select("id,handle,display_name").in("id", actorIds)
-        : Promise.resolve({ data: [] as Actor[], error: null }),
-      itemIds.length > 0
-        ? supabase.from("items").select("id,title").in("id", itemIds)
-        : Promise.resolve({ data: [] as ItemInfo[], error: null }),
-      dmThreadIds.length > 0
-        ? supabase.from("dm_threads").select("id,room_key").in("id", dmThreadIds)
-        : Promise.resolve({ data: [] as ThreadInfo[], error: null }),
-      dmThreadIds.length > 0
-        ? supabase
-            .from("dm_messages")
-            .select("thread_id,sender_id,encrypted_content,is_encrypted,iv,image_url,created_at")
-            .in("thread_id", dmThreadIds)
+      const { data, error } = await runRequestWithPolicy(
+        () =>
+          supabase
+            .from("notifications")
+            .select("id,type,actor_id,item_id,thread_id,preview,read_at,created_at")
+            .eq("user_id", uid)
             .order("created_at", { ascending: false })
-        : Promise.resolve({ data: [] as DmMessageRow[], error: null }),
-    ]);
-
-    if (actorsRes.error || itemsRes.error || threadsRes.error || dmMessagesRes.error) {
-      Alert.alert(
-        "Load Error",
-        actorsRes.error?.message ??
-          itemsRes.error?.message ??
-          threadsRes.error?.message ??
-          dmMessagesRes.error?.message ??
-          "Unknown error"
+            .limit(50),
+        { timeoutMs: 8000, retries: 1 }
       );
-      return;
-    }
 
-    const actorMap = new Map((actorsRes.data ?? []).map((a) => [a.id, a]));
-    const itemMap = new Map((itemsRes.data ?? []).map((i) => [i.id, i]));
-    const threadRoomKeyMap = new Map((threadsRes.data ?? []).map((t) => [t.id, t.room_key]));
-
-    const latestAnyByThread = new Map<string, DmMessageRow>();
-    const latestFromOtherByThread = new Map<string, DmMessageRow>();
-    for (const row of (dmMessagesRes.data ?? []) as DmMessageRow[]) {
-      if (!latestAnyByThread.has(row.thread_id)) {
-        latestAnyByThread.set(row.thread_id, row);
-      }
-      if (row.sender_id !== uid && !latestFromOtherByThread.has(row.thread_id)) {
-        latestFromOtherByThread.set(row.thread_id, row);
-      }
-    }
-
-    const dmPreviewByThread = new Map<string, string>();
-    for (const threadId of dmThreadIds) {
-      const picked = latestFromOtherByThread.get(threadId) ?? latestAnyByThread.get(threadId);
-      if (!picked) continue;
-
-      if (picked.image_url && !picked.encrypted_content) {
-        dmPreviewByThread.set(threadId, language === "ko" ? "사진" : "Photo");
-        continue;
+      if (error) {
+        Alert.alert(t("alert.loadError"), getRequestErrorMessage(language, error, t("common.unknownError")));
+        return;
       }
 
-      let previewText: string | null = null;
-      if (picked.is_encrypted && picked.encrypted_content && picked.iv) {
-        const roomKey = threadRoomKeyMap.get(threadId) ?? null;
-        if (roomKey) {
-          const imported = await importRoomKey(roomKey);
-          if (imported) {
-            previewText = await decryptWithRoomKey(imported, picked.encrypted_content, picked.iv);
-          }
+      const rows = (data ?? []) as NotificationRow[];
+      const actorIds = Array.from(new Set(rows.map((n) => n.actor_id).filter(Boolean))) as string[];
+      const itemIds = Array.from(new Set(rows.map((n) => n.item_id).filter(Boolean))) as string[];
+
+      const dmThreadIds = Array.from(
+        new Set(rows.filter((n) => n.type === "dm" && n.thread_id).map((n) => n.thread_id as string))
+      );
+
+      const [actorsRes, itemsRes, dmMessagesRes] = await Promise.all([
+        actorIds.length > 0
+          ? runRequestWithPolicy(
+              () => supabase.from("profiles").select("id,handle,display_name").in("id", actorIds),
+              { timeoutMs: 8000, retries: 1 }
+            )
+          : Promise.resolve({ data: [] as Actor[], error: null }),
+        itemIds.length > 0
+          ? runRequestWithPolicy(
+              () => supabase.from("items").select("id,title").in("id", itemIds),
+              { timeoutMs: 8000, retries: 1 }
+            )
+          : Promise.resolve({ data: [] as ItemInfo[], error: null }),
+        dmThreadIds.length > 0
+          ? runRequestWithPolicy(
+              () =>
+                supabase
+                  .from("dm_messages")
+                  .select("thread_id,sender_id,encrypted_content,is_encrypted,iv,image_url,created_at")
+                  .in("thread_id", dmThreadIds)
+                  .order("created_at", { ascending: false }),
+              { timeoutMs: 8000, retries: 1 }
+            )
+          : Promise.resolve({ data: [] as DmMessageRow[], error: null }),
+      ]);
+
+      if (actorsRes.error || itemsRes.error || dmMessagesRes.error) {
+        Alert.alert(
+          t("alert.loadError"),
+          getRequestErrorMessage(
+            language,
+            actorsRes.error ?? itemsRes.error ?? dmMessagesRes.error,
+            t("common.unknownError")
+          )
+        );
+        return;
+      }
+
+      const actorMap = new Map((actorsRes.data ?? []).map((a) => [a.id, a]));
+      const itemMap = new Map((itemsRes.data ?? []).map((i) => [i.id, i]));
+
+      const latestAnyByThread = new Map<string, DmMessageRow>();
+      const latestFromOtherByThread = new Map<string, DmMessageRow>();
+      for (const row of (dmMessagesRes.data ?? []) as DmMessageRow[]) {
+        if (!latestAnyByThread.has(row.thread_id)) {
+          latestAnyByThread.set(row.thread_id, row);
         }
-      } else if (picked.encrypted_content) {
-        previewText = picked.encrypted_content;
+        if (row.sender_id !== uid && !latestFromOtherByThread.has(row.thread_id)) {
+          latestFromOtherByThread.set(row.thread_id, row);
+        }
       }
 
-      if (!previewText || !previewText.trim()) {
-        previewText = picked.image_url ? (language === "ko" ? "사진" : "Photo") : language === "ko" ? "메시지" : "Message";
+      const dmPreviewByThread = new Map<string, string>();
+      for (const threadId of dmThreadIds) {
+        const picked = latestFromOtherByThread.get(threadId) ?? latestAnyByThread.get(threadId);
+        if (!picked) continue;
+
+        if (picked.image_url && !picked.encrypted_content) {
+          dmPreviewByThread.set(threadId, language === "ko" ? "사진" : "Photo");
+          continue;
+        }
+
+        let previewText: string | null = null;
+        if (picked.is_encrypted && picked.encrypted_content && picked.iv) {
+          previewText = t("dm.encryptedMessage");
+        } else if (picked.encrypted_content) {
+          previewText = picked.encrypted_content;
+        }
+
+        if (!previewText || !previewText.trim()) {
+          previewText = picked.image_url ? (language === "ko" ? "사진" : "Photo") : language === "ko" ? "메시지" : "Message";
+        }
+        dmPreviewByThread.set(threadId, previewText);
       }
-      dmPreviewByThread.set(threadId, previewText);
+
+      const enriched = rows.map((row) => ({
+        ...row,
+        actor: row.actor_id ? actorMap.get(row.actor_id) ?? null : null,
+        item: row.item_id ? itemMap.get(row.item_id) ?? null : null,
+        preview:
+          row.type === "dm" && row.thread_id
+            ? row.preview?.trim()
+              ? row.preview
+              : dmPreviewByThread.get(row.thread_id) ?? row.preview
+            : row.preview,
+        dmCount: 1,
+        groupedIds: [row.id],
+      }));
+
+      const grouped: EnrichedNotification[] = [];
+      const dmByActor = new Map<string, EnrichedNotification>();
+
+      for (const row of enriched) {
+        if (row.type !== "dm") {
+          grouped.push(row);
+          continue;
+        }
+
+        const key = row.actor_id ?? `thread:${row.thread_id ?? row.id}`;
+        const existing = dmByActor.get(key);
+        if (!existing) {
+          dmByActor.set(key, row);
+          continue;
+        }
+
+        existing.dmCount = (existing.dmCount ?? 1) + 1;
+        existing.groupedIds = [...(existing.groupedIds ?? [existing.id]), row.id];
+        if (new Date(row.created_at).getTime() > new Date(existing.created_at).getTime()) {
+          existing.created_at = row.created_at;
+          existing.preview = row.preview;
+          existing.thread_id = row.thread_id ?? existing.thread_id;
+        }
+        if (!row.read_at) {
+          existing.read_at = null;
+        }
+      }
+
+      grouped.push(...dmByActor.values());
+      grouped.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+      setNotifications(grouped);
+    } catch (error) {
+      Alert.alert(
+        t("alert.loadError"),
+        getRequestErrorMessage(language, error as ApiErrorLike, t("common.unknownError"))
+      );
+    } finally {
+      setLoading(false);
     }
-
-    const enriched = rows.map((row) => ({
-      ...row,
-      actor: row.actor_id ? actorMap.get(row.actor_id) ?? null : null,
-      item: row.item_id ? itemMap.get(row.item_id) ?? null : null,
-      preview:
-        row.type === "dm" && row.thread_id ? dmPreviewByThread.get(row.thread_id) ?? row.preview : row.preview,
-      dmCount: 1,
-      groupedIds: [row.id],
-    }));
-
-    // Group DM notifications by sender so one sender appears once with +n.
-    const grouped: EnrichedNotification[] = [];
-    const dmByActor = new Map<string, EnrichedNotification>();
-
-    for (const row of enriched) {
-      if (row.type !== "dm") {
-        grouped.push(row);
-        continue;
-      }
-
-      const key = row.actor_id ?? `thread:${row.thread_id ?? row.id}`;
-      const existing = dmByActor.get(key);
-      if (!existing) {
-        dmByActor.set(key, row);
-        continue;
-      }
-
-      existing.dmCount = (existing.dmCount ?? 1) + 1;
-      existing.groupedIds = [...(existing.groupedIds ?? [existing.id]), row.id];
-      if (new Date(row.created_at).getTime() > new Date(existing.created_at).getTime()) {
-        existing.created_at = row.created_at;
-        existing.preview = row.preview;
-        existing.thread_id = row.thread_id ?? existing.thread_id;
-      }
-      if (!row.read_at) {
-        existing.read_at = null;
-      }
-    }
-
-    grouped.push(...dmByActor.values());
-    grouped.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
-    setNotifications(grouped);
   }, [language]);
 
   useEffect(() => {
@@ -257,13 +279,17 @@ export function NotificationsScreen({ navigation }: Props) {
     if (!userId) return false;
     const targetIds = ids && ids.length > 0 ? ids : [id];
     const now = new Date().toISOString();
-    const { error } = await supabase
-      .from("notifications")
-      .update({ read_at: now })
-      .in("id", targetIds)
-      .eq("user_id", userId);
+    const { error } = await runRequestWithPolicy(
+      () =>
+        supabase
+          .from("notifications")
+          .update({ read_at: now })
+          .in("id", targetIds)
+          .eq("user_id", userId),
+      { timeoutMs: 8000, retries: 1 }
+    );
     if (error) {
-      Alert.alert("Update Error", error.message);
+      Alert.alert(t("alert.updateError"), getRequestErrorMessage(language, error, t("common.unknownError")));
       return false;
     }
     setNotifications((prev) =>
@@ -278,13 +304,17 @@ export function NotificationsScreen({ navigation }: Props) {
 
   const markAllRead = async () => {
     if (!userId) return;
-    const { error } = await supabase
-      .from("notifications")
-      .update({ read_at: new Date().toISOString() })
-      .eq("user_id", userId)
-      .is("read_at", null);
+    const { error } = await runRequestWithPolicy(
+      () =>
+        supabase
+          .from("notifications")
+          .update({ read_at: new Date().toISOString() })
+          .eq("user_id", userId)
+          .is("read_at", null),
+      { timeoutMs: 8000, retries: 1 }
+    );
     if (error) {
-      Alert.alert("Update Error", error.message);
+      Alert.alert(t("alert.updateError"), getRequestErrorMessage(language, error, t("common.unknownError")));
       return;
     }
     await loadNotifications();
@@ -292,9 +322,12 @@ export function NotificationsScreen({ navigation }: Props) {
 
   const clearAll = async () => {
     if (!userId) return;
-    const { error } = await supabase.from("notifications").delete().eq("user_id", userId);
+    const { error } = await runRequestWithPolicy(
+      () => supabase.from("notifications").delete().eq("user_id", userId),
+      { timeoutMs: 8000, retries: 1 }
+    );
     if (error) {
-      Alert.alert("Delete Error", error.message);
+      Alert.alert(t("alert.deleteError"), getRequestErrorMessage(language, error, t("common.unknownError")));
       return;
     }
     setNotifications([]);
@@ -303,9 +336,12 @@ export function NotificationsScreen({ navigation }: Props) {
   const deleteNotification = async (id: string, ids?: string[]) => {
     if (!userId) return;
     const targetIds = ids && ids.length > 0 ? ids : [id];
-    const { error } = await supabase.from("notifications").delete().in("id", targetIds).eq("user_id", userId);
+    const { error } = await runRequestWithPolicy(
+      () => supabase.from("notifications").delete().in("id", targetIds).eq("user_id", userId),
+      { timeoutMs: 8000, retries: 1 }
+    );
     if (error) {
-      Alert.alert("Delete Error", error.message);
+      Alert.alert(t("alert.deleteError"), getRequestErrorMessage(language, error, t("common.unknownError")));
       return;
     }
     setNotifications((prev) =>
@@ -385,7 +421,10 @@ export function NotificationsScreen({ navigation }: Props) {
       if (item) {
         navigation.navigate("FeedItemDetail", { item });
       } else {
-        Alert.alert(language === "ko" ? "접근 불가" : "Unavailable", language === "ko" ? "해당 아이템을 찾을 수 없습니다." : "This item is no longer available.");
+        Alert.alert(
+          language === "ko" ? "접근 불가" : "Unavailable",
+          language === "ko" ? "해당 아이템을 찾을 수 없습니다." : "This item is no longer available."
+        );
       }
       return;
     }

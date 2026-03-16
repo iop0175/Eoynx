@@ -8,6 +8,7 @@ import { MessageSquare, Bell } from "lucide-react";
 import type { DMThread } from "@/app/actions/dm";
 import { Avatar } from "@/components/ui/optimized-image";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
+import { decryptRoomKey, decryptWithRoomKey, loadPrivateKey } from "@/lib/crypto";
 
 type DMInboxClientProps = {
   threads: DMThread[];
@@ -30,7 +31,7 @@ function getInboxPreview(content: string, imageUrl?: string | null) {
     return "사진";
   }
 
-  return normalized || "메시지를 확인해보세요";
+  return normalized;
 }
 
 export function DMInboxClient({ threads, requestCount, currentUserId }: DMInboxClientProps) {
@@ -46,6 +47,116 @@ export function DMInboxClient({ threads, requestCount, currentUserId }: DMInboxC
     setThreadList(threads);
     threadIdsRef.current = new Set(threads.map((thread) => thread.id));
   }, [threads]);
+
+  React.useEffect(() => {
+    const encryptedThreadIds = threadList
+      .filter((thread) => {
+        const last = thread.last_message;
+        if (!last) return false;
+        if (last.image_url) return false;
+        const normalized = last.content.trim();
+        return normalized.length === 0 || normalized === "Encrypted message";
+      })
+      .map((thread) => thread.id);
+
+    if (encryptedThreadIds.length === 0) return;
+
+    let canceled = false;
+
+    void (async () => {
+      const supabase = createSupabaseBrowserClient();
+      const privateKey = await loadPrivateKey(currentUserId);
+      if (!privateKey || canceled) return;
+
+      const [{ data: threadRows }, { data: messageRows }] = await Promise.all([
+        supabase
+          .from("dm_threads")
+          .select("id, participant1_id, participant2_id, encrypted_key_for_p1, encrypted_key_for_p2")
+          .in("id", encryptedThreadIds),
+        supabase
+          .from("dm_messages")
+          .select("thread_id, encrypted_content, iv, is_encrypted, image_url, created_at")
+          .in("thread_id", encryptedThreadIds)
+          .order("created_at", { ascending: false }),
+      ]);
+
+      if (canceled) return;
+
+      const threadMap = new Map((threadRows ?? []).map((row) => [row.id, row]));
+      const lastMessageMap = new Map<string, {
+        encrypted_content: string | null;
+        iv: string | null;
+        is_encrypted: boolean | null;
+        image_url: string | null;
+      }>();
+
+      (messageRows ?? []).forEach((row) => {
+        if (!lastMessageMap.has(row.thread_id)) {
+          lastMessageMap.set(row.thread_id, {
+            encrypted_content: row.encrypted_content,
+            iv: row.iv,
+            is_encrypted: row.is_encrypted,
+            image_url: row.image_url,
+          });
+        }
+      });
+
+      const resolvedPreviewMap = new Map<string, string>();
+
+      for (const threadId of encryptedThreadIds) {
+        const thread = threadMap.get(threadId);
+        const message = lastMessageMap.get(threadId);
+        if (!thread || !message) continue;
+
+        if (!message.is_encrypted) {
+          if (message.image_url) {
+            resolvedPreviewMap.set(threadId, "사진");
+          }
+          continue;
+        }
+
+        if (!message.encrypted_content || !message.iv) continue;
+
+        const myEncryptedRoomKey =
+          thread.participant1_id === currentUserId
+            ? thread.encrypted_key_for_p1
+            : thread.encrypted_key_for_p2;
+
+        if (!myEncryptedRoomKey) continue;
+
+        try {
+          const roomKey = await decryptRoomKey(privateKey, myEncryptedRoomKey);
+          const decrypted = await decryptWithRoomKey(roomKey, message.encrypted_content, message.iv);
+          const preview = decrypted.trim();
+          if (preview) {
+            resolvedPreviewMap.set(threadId, preview);
+          }
+        } catch {
+          // Keep placeholder when decryption fails.
+        }
+      }
+
+      if (canceled || resolvedPreviewMap.size === 0) return;
+
+      setThreadList((prev) =>
+        prev.map((thread) => {
+          const preview = resolvedPreviewMap.get(thread.id);
+          if (!preview || !thread.last_message) return thread;
+          return {
+            ...thread,
+            last_message: {
+              ...thread.last_message,
+              content: preview,
+            },
+          };
+        })
+      );
+    })();
+
+    return () => {
+      canceled = true;
+    };
+  }, [threadList, currentUserId]);
 
   React.useEffect(() => {
     const onFocus = () => router.refresh();

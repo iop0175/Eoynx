@@ -8,7 +8,8 @@ import { Heart, Share2, MessageSquare, Download, Share, Flag, Ban, MoreHorizonta
 import { followUser, unfollowUser } from "@/app/actions/social";
 import { getOrCreateThread } from "@/app/actions/dm";
 import { blockUser, unblockUser } from "@/app/actions/safety";
-import { getProfileItems, type ProfileItemSortBy } from "@/app/actions/profile";
+import { getProfileItems, type ProfileItemSortBy, getEncryptionPublicKey, saveEncryptionPublicKey } from "@/app/actions/profile";
+import { generateKeyPair, exportPublicKey, savePrivateKey, hasPrivateKey } from "@/lib/crypto";
 import { ReportModal } from "@/components/ui/report-modal";
 import { Avatar } from "@/components/ui/optimized-image";
 const CATEGORIES = [
@@ -55,6 +56,7 @@ type ProfileClientProps = {
   isFollowing?: boolean;
   isLoggedIn?: boolean;
   isBlocked?: boolean;
+  currentUserId?: string | null;
   translations?: {
     sortBy: string;
     sortLatest: string;
@@ -74,6 +76,7 @@ export function ProfileClient({
   isFollowing: initialIsFollowing = false,
   isLoggedIn = false,
   isBlocked: initialIsBlocked = false,
+  currentUserId = null,
   translations,
 }: ProfileClientProps) {
   const router = useRouter();
@@ -169,6 +172,24 @@ export function ProfileClient({
 
     setDmLoading(true);
     try {
+      if (currentUserId) {
+        const { publicKey: existingPublicKey } = await getEncryptionPublicKey(currentUserId);
+        if (!existingPublicKey) {
+          // Ensure sender key exists before requesting encrypted DM thread creation.
+          if (!(await hasPrivateKey(currentUserId))) {
+            const keyPair = await generateKeyPair();
+            await savePrivateKey(currentUserId, keyPair.privateKey);
+            const publicKeyJwk = await exportPublicKey(keyPair.publicKey);
+            await saveEncryptionPublicKey(publicKeyJwk);
+          } else {
+            const keyPair = await generateKeyPair();
+            await savePrivateKey(currentUserId, keyPair.privateKey);
+            const publicKeyJwk = await exportPublicKey(keyPair.publicKey);
+            await saveEncryptionPublicKey(publicKeyJwk);
+          }
+        }
+      }
+
       const result = await getOrCreateThread(profile.id);
       if (result.error) {
         alert(result.error);

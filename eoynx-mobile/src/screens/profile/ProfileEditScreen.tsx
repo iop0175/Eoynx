@@ -9,11 +9,13 @@ import {
   TextInput,
   View,
 } from "react-native";
+import { getRequestErrorMessage, runRequestWithPolicy, type ApiErrorLike } from "../../lib/requestPolicy";
 import { supabase } from "../../lib/supabase";
 import { webUi } from "../../theme/webUi";
 import type { Profile } from "../../types/profile";
 
 export function ProfileEditScreen() {
+  const language = "ko" as const;
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [userId, setUserId] = useState<string | null>(null);
@@ -29,33 +31,37 @@ export function ProfileEditScreen() {
   const loadProfile = async () => {
     setLoading(true);
 
-    const { data: authData, error: authError } = await supabase.auth.getUser();
+    const { data: authData, error: authError } = await runRequestWithPolicy(() => supabase.auth.getUser());
     if (authError || !authData.user) {
       setLoading(false);
-      Alert.alert("Auth Error", authError?.message ?? "No authenticated user.");
+      Alert.alert("Auth Error", getRequestErrorMessage(language, authError, "No authenticated user."));
       return;
     }
 
     const uid = authData.user.id;
     setUserId(uid);
 
-    const { data, error } = await supabase
-      .from("profiles")
-      .select("id,handle,display_name,bio,avatar_url,dm_open")
-      .eq("id", uid)
-      .maybeSingle<Profile>();
+    const { data, error } = await runRequestWithPolicy(() =>
+      supabase
+        .from("profiles")
+        .select("id,handle,display_name,bio,avatar_url,dm_open")
+        .eq("id", uid)
+        .maybeSingle<Profile>()
+    );
 
     if (error && error.message.includes("dm_open")) {
-      const fallback = await supabase
-        .from("profiles")
-        .select("id,handle,display_name,bio,avatar_url")
-        .eq("id", uid)
-        .maybeSingle();
+      const fallback = await runRequestWithPolicy(() =>
+        supabase
+          .from("profiles")
+          .select("id,handle,display_name,bio,avatar_url")
+          .eq("id", uid)
+          .maybeSingle()
+      );
 
       setLoading(false);
 
       if (fallback.error) {
-        Alert.alert("Profile Error", fallback.error.message);
+        Alert.alert("Profile Error", getRequestErrorMessage(language, fallback.error));
         return;
       }
 
@@ -70,7 +76,7 @@ export function ProfileEditScreen() {
     setLoading(false);
 
     if (error) {
-      Alert.alert("Profile Error", error.message);
+      Alert.alert("Profile Error", getRequestErrorMessage(language, error));
       return;
     }
 
@@ -93,36 +99,44 @@ export function ProfileEditScreen() {
 
     setSaving(true);
 
-    let saveError: { message: string } | null = null;
+    let saveError: ApiErrorLike = null;
 
-    const saveWithDm = await supabase
-      .from("profiles")
-      .update({
-        bio: bio.trim() || null,
-        display_name: displayName.trim() || null,
-        dm_open: dmOpen,
-        handle: handle.trim().toLowerCase(),
-      })
-      .eq("id", userId);
+    try {
+      const saveWithDm = await runRequestWithPolicy(() =>
+        supabase
+          .from("profiles")
+          .update({
+            bio: bio.trim() || null,
+            display_name: displayName.trim() || null,
+            dm_open: dmOpen,
+            handle: handle.trim().toLowerCase(),
+          })
+          .eq("id", userId)
+      );
 
-    if (saveWithDm.error && saveWithDm.error.message.includes("dm_open")) {
-      const saveFallback = await supabase
-        .from("profiles")
-        .update({
-          bio: bio.trim() || null,
-          display_name: displayName.trim() || null,
-          handle: handle.trim().toLowerCase(),
-        })
-        .eq("id", userId);
-      saveError = saveFallback.error;
-    } else {
-      saveError = saveWithDm.error;
+      if (saveWithDm.error && saveWithDm.error.message.includes("dm_open")) {
+        const saveFallback = await runRequestWithPolicy(() =>
+          supabase
+            .from("profiles")
+            .update({
+              bio: bio.trim() || null,
+              display_name: displayName.trim() || null,
+              handle: handle.trim().toLowerCase(),
+            })
+            .eq("id", userId)
+        );
+        saveError = saveFallback.error;
+      } else {
+        saveError = saveWithDm.error;
+      }
+    } catch (error) {
+      saveError = error as ApiErrorLike;
     }
 
     setSaving(false);
 
     if (saveError) {
-      Alert.alert("Save Error", saveError.message);
+      Alert.alert("Save Error", getRequestErrorMessage(language, saveError));
       return;
     }
 

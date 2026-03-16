@@ -1,10 +1,11 @@
 "use client";
 
 import * as React from "react";
+import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Loader2, SlidersHorizontal } from "lucide-react";
-import { FeedCard, type FeedCardItem } from "@/components/ui/feed-card";
+import type { FeedCardItem } from "@/components/ui/feed-card";
 import { UserHeader } from "@/components/ui/user-header";
 import { Button } from "@/components/ui/button";
 import { UI_INPUT_BASE } from "@/components/ui/ui-classes";
@@ -13,6 +14,33 @@ import {
   type SearchSortBy,
   type SearchCategory,
 } from "@/app/actions/search";
+
+const FeedCard = dynamic(
+  () => import("@/components/ui/feed-card").then((mod) => mod.FeedCard),
+  {
+    loading: () => (
+      <div className="rounded-2xl border border-neutral-200 bg-white p-5 dark:border-neutral-800 dark:bg-black">
+        <div className="h-4 w-36 animate-pulse rounded bg-neutral-200 dark:bg-neutral-800" />
+        <div className="mt-4 h-52 w-full animate-pulse rounded-xl bg-neutral-200 dark:bg-neutral-800" />
+      </div>
+    ),
+  }
+);
+
+const SearchFiltersPanel = dynamic(
+  () => import("./search-filters-panel").then((mod) => mod.SearchFiltersPanel),
+  {
+    loading: () => (
+      <div className="mt-4 rounded-xl border border-neutral-200 bg-white p-4 dark:border-neutral-800 dark:bg-neutral-900">
+        <div className="h-4 w-32 animate-pulse rounded bg-neutral-200 dark:bg-neutral-800" />
+        <div className="mt-4 grid gap-3 sm:grid-cols-2">
+          <div className="h-20 animate-pulse rounded bg-neutral-100 dark:bg-neutral-800" />
+          <div className="h-20 animate-pulse rounded bg-neutral-100 dark:bg-neutral-800" />
+        </div>
+      </div>
+    ),
+  }
+);
 
 type ProfileRow = {
   id: string;
@@ -63,8 +91,11 @@ export function SearchClient({
   translations: t,
 }: SearchClientProps) {
   const router = useRouter();
-  
-  const [query, setQuery] = React.useState(initialQuery);
+  const searchInputId = React.useId();
+  const filtersPanelId = React.useId();
+  const peopleHeadingId = React.useId();
+  const itemsHeadingId = React.useId();
+
   const [people, setPeople] = React.useState<ProfileRow[]>(initialPeople);
   const [items, setItems] = React.useState<FeedCardItem[]>(initialItems);
   const [hasMoreItems, setHasMoreItems] = React.useState(initialHasMoreItems);
@@ -193,8 +224,12 @@ export function SearchClient({
       <p className="mb-6 text-sm text-neutral-500 dark:text-neutral-400">{t.subtitle}</p>
 
       {/* Search form */}
-      <form onSubmit={handleSearch} className="flex gap-2">
+      <form onSubmit={handleSearch} role="search" aria-label={t.title} className="flex gap-2">
+        <label htmlFor={searchInputId} className="sr-only">
+          {t.placeholder}
+        </label>
         <input
+          id={searchInputId}
           name="q"
           defaultValue={initialQuery}
           placeholder={t.placeholder}
@@ -208,6 +243,9 @@ export function SearchClient({
           variant={hasActiveFilters ? "primary" : "secondary"}
           className="py-3 px-3"
           onClick={() => setShowFilters(!showFilters)}
+          aria-label={t.filters}
+          aria-expanded={showFilters}
+          aria-controls={filtersPanelId}
         >
           <SlidersHorizontal className="h-4 w-4" />
         </Button>
@@ -215,93 +253,44 @@ export function SearchClient({
 
       {/* Filters panel */}
       {showFilters && (
-        <div className="mt-4 rounded-xl border border-neutral-200 bg-white p-4 dark:border-neutral-800 dark:bg-neutral-900">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-sm font-semibold text-neutral-900 dark:text-white">{t.filters}</h3>
-            {hasActiveFilters && (
-              <button
-                type="button"
-                onClick={clearFilters}
-                className="text-xs text-neutral-500 hover:text-neutral-700 dark:text-neutral-400 dark:hover:text-neutral-200"
-              >
-                {t.clearFilters}
-              </button>
-            )}
-          </div>
-          
-          <div className="grid gap-4 sm:grid-cols-2">
-            {/* Sort by */}
-            <div>
-              <label className="block text-xs font-medium text-neutral-600 dark:text-neutral-400 mb-2">
-                {t.sortBy}
-              </label>
-              <div className="flex flex-wrap gap-2">
-                {sortOptions.map((opt) => (
-                  <button
-                    key={opt.value}
-                    type="button"
-                    onClick={() => setSortBy(opt.value)}
-                    className={`rounded-full px-3 py-1.5 text-xs font-medium transition-colors ${
-                      sortBy === opt.value
-                        ? "bg-neutral-900 text-white dark:bg-white dark:text-neutral-900"
-                        : "bg-neutral-100 text-neutral-700 hover:bg-neutral-200 dark:bg-neutral-800 dark:text-neutral-300 dark:hover:bg-neutral-700"
-                    }`}
-                  >
-                    {opt.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Category */}
-            <div>
-              <label className="block text-xs font-medium text-neutral-600 dark:text-neutral-400 mb-2">
-                {t.category}
-              </label>
-              <div className="flex flex-wrap gap-2">
-                {categoryOptions.map((opt) => (
-                  <button
-                    key={opt.value}
-                    type="button"
-                    onClick={() => setCategory(opt.value)}
-                    className={`rounded-full px-3 py-1.5 text-xs font-medium transition-colors ${
-                      category === opt.value
-                        ? "bg-neutral-900 text-white dark:bg-white dark:text-neutral-900"
-                        : "bg-neutral-100 text-neutral-700 hover:bg-neutral-200 dark:bg-neutral-800 dark:text-neutral-300 dark:hover:bg-neutral-700"
-                    }`}
-                  >
-                    {opt.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-          </div>
-
-          {/* Apply button */}
-          <div className="mt-4 flex justify-end">
-            <Button type="button" variant="neutral" onClick={applyFilters} disabled={loadingItems}>
-              {loadingItems ? <Loader2 className="h-4 w-4 animate-spin" /> : t.go}
-            </Button>
-          </div>
+        <div id={filtersPanelId}>
+          <SearchFiltersPanel
+            title={t.filters}
+            sortByLabel={t.sortBy}
+            categoryLabel={t.category}
+            clearLabel={t.clearFilters}
+            applyLabel={t.go}
+            hasActiveFilters={hasActiveFilters}
+            loading={loadingItems}
+            sortBy={sortBy}
+            category={category}
+            sortOptions={sortOptions}
+            categoryOptions={categoryOptions}
+            onSortChange={setSortBy}
+            onCategoryChange={setCategory}
+            onClear={clearFilters}
+            onApply={applyFilters}
+          />
         </div>
       )}
 
       <div className="mt-6 grid gap-6">
         {/* People section */}
         {people.length > 0 && (
-          <section>
+          <section aria-labelledby={peopleHeadingId}>
             <div className="mb-2 flex items-center justify-between">
-              <h2 className="text-sm font-semibold text-neutral-900 dark:text-white">{t.people}</h2>
-              <span className="text-xs text-neutral-500 dark:text-neutral-400">{people.length}</span>
+              <h2 id={peopleHeadingId} className="text-sm font-semibold text-neutral-900 dark:text-white">{t.people}</h2>
+              <span aria-live="polite" className="text-xs text-neutral-500 dark:text-neutral-400">{people.length}</span>
             </div>
             <div className="grid gap-2">
               {people.map((p) => (
                 <Link
                   key={p.id}
                   href={`/u/${p.handle}`}
+                  prefetch={false}
                   className="rounded-xl border border-neutral-200 bg-white px-4 py-3 text-sm hover:bg-neutral-50 dark:border-neutral-800 dark:bg-black dark:hover:bg-neutral-900"
                 >
-                  <UserHeader handle={p.handle} displayName={p.display_name} />
+                  <UserHeader handle={p.handle} displayName={p.display_name} showProfileLink={false} />
                 </Link>
               ))}
             </div>
@@ -309,18 +298,26 @@ export function SearchClient({
         )}
 
         {/* Items section */}
-        <section>
+        <section aria-labelledby={itemsHeadingId}>
           <div className="mb-3 flex items-center justify-between">
-            <h2 className="text-sm font-semibold text-neutral-900 dark:text-white">{t.items}</h2>
-            <span className="text-xs text-neutral-500 dark:text-neutral-400">{items.length}</span>
+            <h2 id={itemsHeadingId} className="text-sm font-semibold text-neutral-900 dark:text-white">{t.items}</h2>
+            <span aria-live="polite" className="text-xs text-neutral-500 dark:text-neutral-400">{items.length}</span>
           </div>
           <div className="grid gap-4">
-            {items.map((item) => (
-              <FeedCard key={item.id} item={item} />
+            {items.map((item, index) => (
+              <FeedCard
+                key={item.id}
+                item={item}
+                imagePriority={index === 0}
+                imageSizes="(max-width: 768px) 100vw, (max-width: 1280px) 66vw, 720px"
+                disablePrefetchLinks
+              />
             ))}
             
             {initialQuery && items.length === 0 && !loadingItems ? (
-              <div className="text-xs text-neutral-500 dark:text-neutral-400">{t.noResults}</div>
+              <div role="status" aria-live="polite" className="text-xs text-neutral-500 dark:text-neutral-400">
+                {t.noResults}
+              </div>
             ) : null}
           </div>
 
