@@ -5,7 +5,8 @@ import { useState } from "react";
 import { X, Link2, MessageCircle, Loader2, Search, Check } from "lucide-react";
 import { Avatar } from "@/components/ui/optimized-image";
 import { getFollowingList } from "@/app/actions/profile";
-import { getOrCreateThread, sendMessage } from "@/app/actions/dm";
+import { getOrCreateThread, getThreadDetails, sendMessage } from "@/app/actions/dm";
+import { decryptRoomKey, encryptWithRoomKey, loadPrivateKey } from "@/lib/crypto";
 
 type ShareModalProps = {
   isOpen: boolean;
@@ -21,6 +22,34 @@ type User = {
   display_name: string | null;
   avatar_url: string | null;
 };
+
+function extractRedirectUrlFromError(error: unknown): string | null {
+  if (!error || typeof error !== "object") return null;
+
+  const digest = "digest" in error ? (error as { digest?: unknown }).digest : undefined;
+  if (typeof digest !== "string") return null;
+  if (!digest.startsWith("NEXT_REDIRECT")) return null;
+
+  const parts = digest.split(";");
+  if (parts.length < 4) return null;
+
+  const redirectUrl = parts[2];
+  return redirectUrl || null;
+}
+
+async function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((_, reject) => {
+        timer = setTimeout(() => reject(new Error(message)), ms);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
 
 export function ShareModal({ isOpen, onClose, itemId, itemTitle, itemImageUrl }: ShareModalProps) {
   const [mode, setMode] = useState<"options" | "dm">("options");
@@ -45,7 +74,13 @@ export function ShareModal({ isOpen, onClose, itemId, itemTitle, itemImageUrl }:
         setFollowingList(result.following);
       }
     } catch (error) {
+      const redirectUrl = extractRedirectUrlFromError(error);
       console.error("Failed to load following list:", error);
+      if (redirectUrl) {
+        alert(`인증 또는 동의가 필요합니다: ${redirectUrl}`);
+      } else {
+        alert("팔로잉 목록을 불러오지 못했습니다. 잠시 후 다시 시도해주세요.");
+      }
     } finally {
       setLoading(false);
     }
@@ -79,18 +114,104 @@ export function ShareModal({ isOpen, onClose, itemId, itemTitle, itemImageUrl }:
     setSending(true);
     try {
       const message = `피드를 공유했습니다\n${itemTitle}\n${shareUrl}`;
-      
+
+      let successCount = 0;
+      const failures: string[] = [];
+
       for (const userId of selectedUsers) {
-        const threadResult = await getOrCreateThread(userId);
-        if (threadResult.threadId) {
-          await sendMessage(threadResult.threadId, message);
+        try {
+          const threadResult = await withTimeout(
+            getOrCreateThread(userId),
+            10000,
+            "DM 스레드 생성 시간이 초과되었습니다"
+          );
+          if (threadResult.error || !threadResult.threadId) {
+            failures.push(threadResult.error ?? "DM 스레드를 생성하지 못했습니다");
+            continue;
+          }
+
+          const detailResult = await withTimeout(
+            getThreadDetails(threadResult.threadId),
+            10000,
+            "DM 스레드 정보 조회 시간이 초과되었습니다"
+          );
+          if ("error" in detailResult && detailResult.error) {
+            failures.push(detailResult.error);
+            continue;
+          }
+
+          if (!detailResult.myEncryptedRoomKey || !detailResult.currentUserId) {
+            failures.push("암호화 키가 준비되지 않았습니다. 잠시 후 다시 시도해주세요");
+            continue;
+          }
+
+          const privateKey = await withTimeout(
+            loadPrivateKey(detailResult.currentUserId),
+            8000,
+            "암호화 키 로딩 시간이 초과되었습니다"
+          );
+          if (!privateKey) {
+            failures.push("암호화 키를 불러올 수 없습니다. 다시 로그인 후 시도해주세요");
+            continue;
+          }
+
+          const roomKey = await withTimeout(
+            decryptRoomKey(privateKey, detailResult.myEncryptedRoomKey),
+            8000,
+            "암호화 키 복호화 시간이 초과되었습니다"
+          );
+          const encrypted = await withTimeout(
+            encryptWithRoomKey(roomKey, message),
+            8000,
+            "메시지 암호화 시간이 초과되었습니다"
+          );
+
+          const sendResult = await withTimeout(
+            sendMessage(threadResult.threadId, message, {
+              encryptedContent: encrypted.encryptedContent,
+              encryptedKey: "",
+              iv: encrypted.iv,
+            }),
+            12000,
+            "DM 전송 시간이 초과되었습니다"
+          );
+
+          if (sendResult.error) {
+            failures.push(sendResult.error);
+            continue;
+          }
+
+          successCount += 1;
+        } catch (error) {
+          const redirectUrl = extractRedirectUrlFromError(error);
+          if (redirectUrl) {
+            failures.push(`인증 또는 동의가 필요합니다: ${redirectUrl}`);
+            continue;
+          }
+          failures.push(error instanceof Error ? error.message : "전송 중 오류가 발생했습니다");
         }
       }
-      
+
+      if (successCount === 0) {
+        throw new Error(failures[0] ?? "전송 중 오류가 발생했습니다");
+      }
+
+      if (failures.length > 0) {
+        alert(`${successCount}명에게 전송되었습니다. 일부 실패: ${failures[0]}`);
+      } else {
+        alert(`${successCount}명에게 DM으로 공유했습니다`);
+      }
+
       onClose();
     } catch (error) {
+      const redirectUrl = extractRedirectUrlFromError(error);
       console.error("Failed to send DM:", error);
-      alert("전송 중 오류가 발생했습니다");
+      const message = redirectUrl
+        ? `인증 또는 동의가 필요합니다: ${redirectUrl}`
+        : error instanceof Error
+          ? error.message
+          : "전송 중 오류가 발생했습니다";
+      alert(message);
     } finally {
       setSending(false);
     }

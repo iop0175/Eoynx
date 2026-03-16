@@ -3,7 +3,6 @@ import {
   ActivityIndicator,
   Alert,
   FlatList,
-  Image,
   Modal,
   Pressable,
   RefreshControl,
@@ -14,11 +13,18 @@ import {
   TextInput,
   View,
 } from "react-native";
+import { Image as ExpoImage } from "expo-image";
 import Svg, { Path } from "react-native-svg";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { ReportModal, type ReportReason } from "../components/ReportModal";
 import { useI18n } from "../i18n";
-import { encryptWithRoomKey, generateSimpleRoomKey, importRoomKey } from "../lib/dmCrypto";
+import { encryptWithRoomKey, generateDMRoomKey, importRoomKey } from "../lib/dmCrypto";
+import {
+  decryptRoomKeyWithPrivateKey,
+  encryptRoomKeyForPublicKey,
+  loadPrivateKey,
+} from "../lib/encryptionKeys";
+import { getRequestErrorMessage, runRequestWithPolicy, type ApiErrorLike } from "../lib/requestPolicy";
 import { supabase } from "../lib/supabase";
 import type { FeedStackParamList } from "../navigation/types";
 import { useThemePreference } from "../theme/ThemeContext";
@@ -27,6 +33,7 @@ import type { Item } from "../types/item";
 
 type Props = NativeStackScreenProps<FeedStackParamList, "FeedList">;
 const PAGE_SIZE = 5;
+const IMAGE_CACHE_POLICY = "memory-disk" as const;
 
 const CATEGORIES = [
   { id: "all" },
@@ -170,6 +177,7 @@ function BookmarkActionIcon({ active }: { active: boolean }) {
 
 export function FeedScreen({ navigation }: Props) {
   const { t } = useI18n();
+  const language = "ko" as const;
   const { resolvedTheme } = useThemePreference();
   const getCommentDisplayContent = (content: string) => {
     if (content === DELETED_COMMENT_BY_OWNER_KO || content === DELETED_COMMENT_BY_OWNER_EN) {
@@ -254,9 +262,13 @@ export function FeedScreen({ navigation }: Props) {
   useEffect(() => {
     const refreshLikeState = async (itemId: string) => {
       const [countRes, likedRes] = await Promise.all([
-        supabase.from("likes").select("id", { count: "exact", head: true }).eq("item_id", itemId),
+        runRequestWithPolicy(() =>
+          supabase.from("likes").select("id", { count: "exact", head: true }).eq("item_id", itemId)
+        ),
         userId
-          ? supabase.from("likes").select("id").eq("item_id", itemId).eq("user_id", userId).maybeSingle()
+          ? runRequestWithPolicy(() =>
+              supabase.from("likes").select("id").eq("item_id", itemId).eq("user_id", userId).maybeSingle()
+            )
           : Promise.resolve({ data: null, error: null }),
       ]);
 
@@ -305,11 +317,13 @@ export function FeedScreen({ navigation }: Props) {
       return;
     }
 
-    const { count, error } = await supabase
-      .from("notifications")
-      .select("id", { count: "exact", head: true })
-      .eq("user_id", uid)
-      .is("read_at", null);
+    const { count, error } = await runRequestWithPolicy(() =>
+      supabase
+        .from("notifications")
+        .select("id", { count: "exact", head: true })
+        .eq("user_id", uid)
+        .is("read_at", null)
+    );
 
     if (!error) {
       setNotificationUnreadCount(count ?? 0);
@@ -324,11 +338,13 @@ export function FeedScreen({ navigation }: Props) {
       setItemsLoading(true);
       setHasMore(true);
     }
-    const { data: authData } = await supabase.auth.getUser();
+    const { data: authData } = await runRequestWithPolicy(() => supabase.auth.getUser());
     const uid = authData.user?.id ?? null;
     setUserId(uid);
     if (uid) {
-      const { data: me } = await supabase.from("profiles").select("handle").eq("id", uid).maybeSingle();
+      const { data: me } = await runRequestWithPolicy(() =>
+        supabase.from("profiles").select("handle").eq("id", uid).maybeSingle()
+      );
       setUserHandle(me?.handle ?? null);
     } else {
       setUserHandle(null);
@@ -347,7 +363,7 @@ export function FeedScreen({ navigation }: Props) {
       query = query.ilike("category", category);
     }
 
-    const { data, error } = await query.returns<ItemRow[]>();
+    const { data, error } = await runRequestWithPolicy(() => query.returns<ItemRow[]>());
     if (append) {
       setLoadingMore(false);
     } else {
@@ -369,16 +385,20 @@ export function FeedScreen({ navigation }: Props) {
 
     if (itemIds.length > 0) {
       const [likesRes, commentsRes, bookmarksRes, commentPreviewRes] = await Promise.all([
-        supabase.from("likes").select("item_id,user_id").in("item_id", itemIds),
-        supabase.from("comments").select("item_id").in("item_id", itemIds),
+        runRequestWithPolicy(() => supabase.from("likes").select("item_id,user_id").in("item_id", itemIds)),
+        runRequestWithPolicy(() => supabase.from("comments").select("item_id").in("item_id", itemIds)),
         uid
-          ? supabase.from("bookmarks").select("item_id").eq("user_id", uid).in("item_id", itemIds)
+          ? runRequestWithPolicy(() =>
+              supabase.from("bookmarks").select("item_id").eq("user_id", uid).in("item_id", itemIds)
+            )
           : Promise.resolve({ data: [], error: null }),
-        supabase
-          .from("comments")
-          .select("id,item_id,user_id,content,created_at")
-          .in("item_id", itemIds)
-          .order("created_at", { ascending: false }),
+        runRequestWithPolicy(() =>
+          supabase
+            .from("comments")
+            .select("id,item_id,user_id,content,created_at")
+            .in("item_id", itemIds)
+            .order("created_at", { ascending: false })
+        ),
       ]);
 
       if (likesRes.error || commentsRes.error || bookmarksRes.error || commentPreviewRes.error) {
@@ -427,10 +447,12 @@ export function FeedScreen({ navigation }: Props) {
     const previewUserIds = Array.from(new Set(commentPreviewRows.map((row) => row.user_id)));
     let previewProfilesMap = new Map<string, { handle: string; display_name: string | null }>();
     if (previewUserIds.length > 0) {
-      const { data: previewProfiles, error: previewProfilesError } = await supabase
-        .from("profiles")
-        .select("id,handle,display_name")
-        .in("id", previewUserIds);
+      const { data: previewProfiles, error: previewProfilesError } = await runRequestWithPolicy(() =>
+        supabase
+          .from("profiles")
+          .select("id,handle,display_name")
+          .in("id", previewUserIds)
+      );
 
       if (previewProfilesError) {
         Alert.alert(t("alert.loadError"), previewProfilesError.message);
@@ -508,13 +530,23 @@ export function FeedScreen({ navigation }: Props) {
     }
 
     setActionLoading((prev) => ({ ...prev, [itemId]: true }));
-    const { error } = liked
-      ? await supabase.from("likes").delete().eq("item_id", itemId).eq("user_id", userId)
-      : await supabase.from("likes").upsert({ item_id: itemId, user_id: userId }, { onConflict: "user_id,item_id" });
+    let error: ApiErrorLike = null;
+    try {
+      const result = liked
+        ? await runRequestWithPolicy(() =>
+            supabase.from("likes").delete().eq("item_id", itemId).eq("user_id", userId)
+          )
+        : await runRequestWithPolicy(() =>
+            supabase.from("likes").upsert({ item_id: itemId, user_id: userId }, { onConflict: "user_id,item_id" })
+          );
+      error = result.error;
+    } catch (likeError) {
+      error = likeError as ApiErrorLike;
+    }
     setActionLoading((prev) => ({ ...prev, [itemId]: false }));
 
     if (error) {
-      Alert.alert(t("alert.likeError"), error.message);
+      Alert.alert(t("alert.likeError"), getRequestErrorMessage(language, error));
       return;
     }
 
@@ -540,15 +572,25 @@ export function FeedScreen({ navigation }: Props) {
     }
 
     setActionLoading((prev) => ({ ...prev, [itemId]: true }));
-    const { error } = bookmarked
-      ? await supabase.from("bookmarks").delete().eq("item_id", itemId).eq("user_id", userId)
-      : await supabase
-          .from("bookmarks")
-          .upsert({ item_id: itemId, user_id: userId }, { onConflict: "user_id,item_id" });
+    let error: ApiErrorLike = null;
+    try {
+      const result = bookmarked
+        ? await runRequestWithPolicy(() =>
+            supabase.from("bookmarks").delete().eq("item_id", itemId).eq("user_id", userId)
+          )
+        : await runRequestWithPolicy(() =>
+            supabase
+              .from("bookmarks")
+              .upsert({ item_id: itemId, user_id: userId }, { onConflict: "user_id,item_id" })
+          );
+      error = result.error;
+    } catch (bookmarkError) {
+      error = bookmarkError as ApiErrorLike;
+    }
     setActionLoading((prev) => ({ ...prev, [itemId]: false }));
 
     if (error) {
-      Alert.alert(t("alert.bookmarkError"), error.message);
+      Alert.alert(t("alert.bookmarkError"), getRequestErrorMessage(language, error));
       return;
     }
 
@@ -582,7 +624,7 @@ export function FeedScreen({ navigation }: Props) {
     void (async () => {
       let uid = userId;
       if (!uid) {
-        const { data: authData } = await supabase.auth.getUser();
+        const { data: authData } = await runRequestWithPolicy(() => supabase.auth.getUser());
         uid = authData.user?.id ?? null;
         if (uid) setUserId(uid);
       }
@@ -592,11 +634,13 @@ export function FeedScreen({ navigation }: Props) {
       }
 
       setShareFollowersLoading(true);
-      const { data: followerRows, error: followerError } = await supabase
-        .from("followers")
-        .select("follower_id")
-        .eq("following_id", uid)
-        .limit(200);
+      const { data: followerRows, error: followerError } = await runRequestWithPolicy(() =>
+        supabase
+          .from("followers")
+          .select("follower_id")
+          .eq("following_id", uid)
+          .limit(200)
+      );
 
       if (followerError) {
         setShareFollowersLoading(false);
@@ -614,10 +658,12 @@ export function FeedScreen({ navigation }: Props) {
         return;
       }
 
-      const { data: profiles, error: profilesError } = await supabase
-        .from("profiles")
-        .select("id,handle,display_name,avatar_url")
-        .in("id", followerIds);
+      const { data: profiles, error: profilesError } = await runRequestWithPolicy(() =>
+        supabase
+          .from("profiles")
+          .select("id,handle,display_name,avatar_url")
+          .in("id", followerIds)
+      );
 
       setShareFollowersLoading(false);
       if (profilesError) {
@@ -644,7 +690,7 @@ export function FeedScreen({ navigation }: Props) {
     if (!dmShareItem) return;
     let uid = userId;
     if (!uid) {
-      const { data: authData } = await supabase.auth.getUser();
+      const { data: authData } = await runRequestWithPolicy(() => supabase.auth.getUser());
       uid = authData.user?.id ?? null;
       if (uid) setUserId(uid);
     }
@@ -654,14 +700,17 @@ export function FeedScreen({ navigation }: Props) {
     }
 
     setShareSendingToId(target.id);
+    try {
     const [one, two] = uid < target.id ? [uid, target.id] : [target.id, uid];
 
-    const existing = await supabase
-      .from("dm_threads")
-      .select("id,room_key")
-      .eq("participant1_id", one)
-      .eq("participant2_id", two)
-      .maybeSingle();
+    const existing = await runRequestWithPolicy(() =>
+      supabase
+        .from("dm_threads")
+        .select("id,participant1_id,participant2_id,encrypted_key_for_p1,encrypted_key_for_p2")
+        .eq("participant1_id", one)
+        .eq("participant2_id", two)
+        .maybeSingle()
+    );
 
     if (existing.error) {
       setShareSendingToId(null);
@@ -670,20 +719,54 @@ export function FeedScreen({ navigation }: Props) {
     }
 
     let threadId = existing.data?.id ?? null;
-    let roomKey = existing.data?.room_key ?? null;
+    const existingThread = existing.data;
+    let roomKey = null as string | null;
 
     if (!threadId) {
-      const generatedRoomKey = await generateSimpleRoomKey();
-      const created = await supabase
-        .from("dm_threads")
-        .insert({
-          participant1_id: one,
-          participant2_id: two,
-          last_message_at: new Date().toISOString(),
-          room_key: generatedRoomKey,
-        })
-        .select("id,room_key")
-        .single();
+      const generatedRoomKey = generateDMRoomKey();
+      if (!generatedRoomKey) {
+        setShareSendingToId(null);
+        Alert.alert(t("alert.shareError"), t("common.unknownError"));
+        return;
+      }
+
+      const { data: profiles, error: profilesError } = await runRequestWithPolicy(() =>
+        supabase
+          .from("profiles")
+          .select("id,encryption_public_key")
+          .in("id", [one, two])
+      );
+
+      if (profilesError) {
+        setShareSendingToId(null);
+        Alert.alert(t("alert.shareError"), profilesError.message);
+        return;
+      }
+
+      const p1 = profiles?.find((p) => p.id === one);
+      const p2 = profiles?.find((p) => p.id === two);
+      if (!p1?.encryption_public_key || !p2?.encryption_public_key) {
+        setShareSendingToId(null);
+        Alert.alert(t("alert.shareError"), t("dm.encryptedMessage"));
+        return;
+      }
+
+      const encryptedKeyForP1 = await encryptRoomKeyForPublicKey(p1.encryption_public_key, generatedRoomKey);
+      const encryptedKeyForP2 = await encryptRoomKeyForPublicKey(p2.encryption_public_key, generatedRoomKey);
+
+      const created = await runRequestWithPolicy(() =>
+        supabase
+          .from("dm_threads")
+          .insert({
+            participant1_id: one,
+            participant2_id: two,
+            last_message_at: new Date().toISOString(),
+            encrypted_key_for_p1: encryptedKeyForP1,
+            encrypted_key_for_p2: encryptedKeyForP2,
+          })
+          .select("id")
+          .single()
+      );
 
       if (created.error || !created.data) {
         setShareSendingToId(null);
@@ -691,19 +774,55 @@ export function FeedScreen({ navigation }: Props) {
         return;
       }
       threadId = created.data.id;
-      roomKey = created.data.room_key ?? generatedRoomKey ?? null;
+      roomKey = generatedRoomKey;
+    } else {
+      if (!existingThread) {
+        setShareSendingToId(null);
+        Alert.alert(t("alert.shareError"), t("common.unknownError"));
+        return;
+      }
+
+      const currentUserIsP1 = uid === existingThread.participant1_id;
+      const myEncryptedKey = currentUserIsP1
+        ? existingThread.encrypted_key_for_p1
+        : existingThread.encrypted_key_for_p2;
+
+      if (!myEncryptedKey) {
+        setShareSendingToId(null);
+        Alert.alert(t("alert.shareError"), t("dm.encryptedMessage"));
+        return;
+      }
+
+      const privateKey = await loadPrivateKey(uid);
+      if (!privateKey) {
+        setShareSendingToId(null);
+        Alert.alert(t("alert.shareError"), t("dm.encryptedMessage"));
+        return;
+      }
+
+      roomKey = await decryptRoomKeyWithPrivateKey(privateKey, myEncryptedKey);
     }
 
     const shareUrl = `https://eoynx.com/i/${dmShareItem.id}`;
 
     // Web 정책과 동일: 상대가 DM 요청 수락 전이면 메시지 전송 차단
-    const { data: pendingBetween } = await supabase
-      .from("dm_requests")
-      .select("id,status")
-      .eq("status", "pending")
-      .or(`and(from_user_id.eq.${uid},to_user_id.eq.${target.id}),and(from_user_id.eq.${target.id},to_user_id.eq.${uid})`)
-      .limit(1)
-      .maybeSingle();
+    const pendingBetweenRes = await runRequestWithPolicy(() =>
+      supabase
+        .from("dm_requests")
+        .select("id,status")
+        .eq("status", "pending")
+        .or(`and(from_user_id.eq.${uid},to_user_id.eq.${target.id}),and(from_user_id.eq.${target.id},to_user_id.eq.${uid})`)
+        .limit(1)
+        .maybeSingle()
+    );
+
+    if (pendingBetweenRes.error) {
+      setShareSendingToId(null);
+      Alert.alert(t("alert.shareError"), getRequestErrorMessage(language, pendingBetweenRes.error));
+      return;
+    }
+
+    const pendingBetween = pendingBetweenRes.data;
 
     if (pendingBetween?.id) {
       setShareSendingToId(null);
@@ -711,35 +830,71 @@ export function FeedScreen({ navigation }: Props) {
       return;
     }
 
-    const { data: recipientProfile } = await supabase
-      .from("profiles")
-      .select("dm_open")
-      .eq("id", target.id)
-      .maybeSingle();
+    const recipientProfileRes = await runRequestWithPolicy(() =>
+      supabase
+        .from("profiles")
+        .select("dm_open")
+        .eq("id", target.id)
+        .maybeSingle()
+    );
+
+    if (recipientProfileRes.error) {
+      setShareSendingToId(null);
+      Alert.alert(t("alert.shareError"), getRequestErrorMessage(language, recipientProfileRes.error));
+      return;
+    }
+
+    const recipientProfile = recipientProfileRes.data;
 
     const recipientOpen = recipientProfile?.dm_open ?? true;
     if (!recipientOpen) {
-      const { data: requestStatus } = await supabase
-        .from("dm_requests")
-        .select("id,status")
-        .eq("from_user_id", uid)
-        .eq("to_user_id", target.id)
-        .maybeSingle();
+      const requestStatusRes = await runRequestWithPolicy(() =>
+        supabase
+          .from("dm_requests")
+          .select("id,status")
+          .eq("from_user_id", uid)
+          .eq("to_user_id", target.id)
+          .maybeSingle()
+      );
+
+      if (requestStatusRes.error) {
+        setShareSendingToId(null);
+        Alert.alert(t("alert.shareError"), getRequestErrorMessage(language, requestStatusRes.error));
+        return;
+      }
+
+      const requestStatus = requestStatusRes.data;
 
       if (requestStatus?.status !== "accepted") {
         if (requestStatus?.id) {
-          await supabase
-            .from("dm_requests")
-            .update({ status: "pending", thread_id: threadId })
-            .eq("id", requestStatus.id);
+          const updateRequestRes = await runRequestWithPolicy(() =>
+            supabase
+              .from("dm_requests")
+              .update({ status: "pending", thread_id: threadId })
+              .eq("id", requestStatus.id)
+          );
+
+          if (updateRequestRes.error) {
+            setShareSendingToId(null);
+            Alert.alert(t("alert.shareError"), getRequestErrorMessage(language, updateRequestRes.error));
+            return;
+          }
         } else {
-          await supabase
-            .from("dm_requests")
-            .insert({
-              from_user_id: uid,
-              to_user_id: target.id,
-              thread_id: threadId,
-            });
+          const insertRequestRes = await runRequestWithPolicy(() =>
+            supabase
+              .from("dm_requests")
+              .insert({
+                from_user_id: uid,
+                to_user_id: target.id,
+                thread_id: threadId,
+              })
+          );
+
+          if (insertRequestRes.error) {
+            setShareSendingToId(null);
+            Alert.alert(t("alert.shareError"), getRequestErrorMessage(language, insertRequestRes.error));
+            return;
+          }
         }
 
         setShareSendingToId(null);
@@ -749,57 +904,46 @@ export function FeedScreen({ navigation }: Props) {
     }
 
     const shareText = `피드를 공유했습니다\n${dmShareItem.title}\n${shareUrl}`;
-    let insertPayload:
-      | {
-          thread_id: string;
-          sender_id: string;
-          encrypted_content: string;
-          iv: string;
-          is_encrypted: true;
-        }
-      | {
-          thread_id: string;
-          sender_id: string;
-          encrypted_content: string;
-          is_encrypted: false;
-        };
-
-    if (roomKey) {
-      const imported = await importRoomKey(roomKey);
-      const encrypted = imported ? await encryptWithRoomKey(imported, shareText) : null;
-      if (encrypted) {
-        insertPayload = {
-          thread_id: threadId,
-          sender_id: uid,
-          encrypted_content: encrypted.encryptedContent,
-          iv: encrypted.iv,
-          is_encrypted: true,
-        };
-      } else {
-        insertPayload = {
-          thread_id: threadId,
-          sender_id: uid,
-          encrypted_content: shareText,
-          is_encrypted: false,
-        };
-      }
-    } else {
-      insertPayload = {
-        thread_id: threadId,
-        sender_id: uid,
-        encrypted_content: shareText,
-        is_encrypted: false,
-      };
+    if (!roomKey) {
+      setShareSendingToId(null);
+      Alert.alert(t("alert.shareError"), t("dm.encryptedMessage"));
+      return;
     }
 
-    const { error: insertError } = await supabase.from("dm_messages").insert(insertPayload);
+    const imported = await importRoomKey(roomKey);
+    const encrypted = imported ? await encryptWithRoomKey(imported, shareText) : null;
+    if (!encrypted) {
+      setShareSendingToId(null);
+      Alert.alert(t("alert.shareError"), t("common.unknownError"));
+      return;
+    }
+
+    const insertPayload = {
+      thread_id: threadId,
+      sender_id: uid,
+      encrypted_content: encrypted.encryptedContent,
+      iv: encrypted.iv,
+      is_encrypted: true as const,
+    };
+
+    const { error: insertError } = await runRequestWithPolicy(() =>
+      supabase.from("dm_messages").insert(insertPayload)
+    );
     if (insertError) {
       setShareSendingToId(null);
       Alert.alert(t("alert.shareError"), insertError.message);
       return;
     }
 
-    await supabase.from("dm_threads").update({ last_message_at: new Date().toISOString() }).eq("id", threadId);
+    const updateThreadRes = await runRequestWithPolicy(() =>
+      supabase.from("dm_threads").update({ last_message_at: new Date().toISOString() }).eq("id", threadId)
+    );
+
+    if (updateThreadRes.error) {
+      setShareSendingToId(null);
+      Alert.alert(t("alert.shareError"), getRequestErrorMessage(language, updateThreadRes.error));
+      return;
+    }
 
     setShareSendingToId(null);
     setShareFollowersVisible(false);
@@ -810,6 +954,10 @@ export function FeedScreen({ navigation }: Props) {
       otherName: target.display_name,
       otherAvatarUrl: target.avatar_url,
     });
+    } catch (shareError) {
+      setShareSendingToId(null);
+      Alert.alert(t("alert.shareError"), getRequestErrorMessage(language, shareError as ApiErrorLike, t("common.unknownError")));
+    }
   };
 
   const submitItemReport = async (
@@ -821,15 +969,17 @@ export function FeedScreen({ navigation }: Props) {
       return { ok: false, error: t("alert.pleaseSignInFirst") };
     }
 
-    const { error } = await supabase.from("reports").insert({
-      reporter_id: userId,
-      reported_item_id: item.id,
-      reason,
-      description: description || null,
-    });
+    const { error } = await runRequestWithPolicy(() =>
+      supabase.from("reports").insert({
+        reporter_id: userId,
+        reported_item_id: item.id,
+        reason,
+        description: description || null,
+      })
+    );
 
     if (error) {
-      return { ok: false, error: error.message };
+      return { ok: false, error: getRequestErrorMessage(language, error) };
     }
 
     return { ok: true };
@@ -843,15 +993,17 @@ export function FeedScreen({ navigation }: Props) {
       return { ok: false, error: t("alert.pleaseSignInFirst") };
     }
 
-    const { error } = await supabase.from("reports").insert({
-      reporter_id: userId,
-      reported_comment_id: reportTargetComment.id,
-      reason,
-      description: description || null,
-    });
+    const { error } = await runRequestWithPolicy(() =>
+      supabase.from("reports").insert({
+        reporter_id: userId,
+        reported_comment_id: reportTargetComment.id,
+        reason,
+        description: description || null,
+      })
+    );
 
     if (error) {
-      return { ok: false, error: error.message };
+      return { ok: false, error: getRequestErrorMessage(language, error) };
     }
     return { ok: true };
   };
@@ -866,17 +1018,19 @@ export function FeedScreen({ navigation }: Props) {
       return;
     }
 
-    const { error } = await supabase.from("blocks").insert({
-      blocker_id: userId,
-      blocked_id: blockedId,
-    });
+    const { error } = await runRequestWithPolicy(() =>
+      supabase.from("blocks").insert({
+        blocker_id: userId,
+        blocked_id: blockedId,
+      })
+    );
 
     if (error) {
       if (error.code === "23505") {
         Alert.alert(t("alert.blocked"), t("alert.alreadyBlocked"));
         return;
       }
-      Alert.alert(t("alert.blockError"), error.message);
+      Alert.alert(t("alert.blockError"), getRequestErrorMessage(language, error));
       return;
     }
 
@@ -920,18 +1074,22 @@ export function FeedScreen({ navigation }: Props) {
     setCommentsLoadingByItem((prev) => ({ ...prev, [itemId]: true }));
 
     let rows: FeedCommentRow[] = [];
-    const withParentRes = await supabase
-      .from("comments")
-      .select("id,item_id,user_id,content,created_at,parent_id")
-      .eq("item_id", itemId)
-      .order("created_at", { ascending: true });
+    const withParentRes = await runRequestWithPolicy(() =>
+      supabase
+        .from("comments")
+        .select("id,item_id,user_id,content,created_at,parent_id")
+        .eq("item_id", itemId)
+        .order("created_at", { ascending: true })
+    );
 
     if (withParentRes.error && withParentRes.error.message.toLowerCase().includes("parent_id")) {
-      const fallbackRes = await supabase
-        .from("comments")
-        .select("id,item_id,user_id,content,created_at")
-        .eq("item_id", itemId)
-        .order("created_at", { ascending: true });
+      const fallbackRes = await runRequestWithPolicy(() =>
+        supabase
+          .from("comments")
+          .select("id,item_id,user_id,content,created_at")
+          .eq("item_id", itemId)
+          .order("created_at", { ascending: true })
+      );
       if (fallbackRes.error) {
         setCommentsLoadingByItem((prev) => ({ ...prev, [itemId]: false }));
         Alert.alert(t("alert.commentLoadError"), fallbackRes.error.message);
@@ -950,10 +1108,14 @@ export function FeedScreen({ navigation }: Props) {
     const commentIds = rows.map((row) => row.id);
     const [profilesRes, likesRes] = await Promise.all([
       userIds.length > 0
-        ? supabase.from("profiles").select("id,handle,display_name,avatar_url").in("id", userIds)
+        ? runRequestWithPolicy(() =>
+            supabase.from("profiles").select("id,handle,display_name,avatar_url").in("id", userIds)
+          )
         : Promise.resolve({ data: [], error: null }),
       commentIds.length > 0
-        ? supabase.from("comment_likes").select("comment_id,user_id").in("comment_id", commentIds)
+        ? runRequestWithPolicy(() =>
+            supabase.from("comment_likes").select("comment_id,user_id").in("comment_id", commentIds)
+          )
         : Promise.resolve({ data: [], error: null }),
     ]);
 
@@ -999,11 +1161,15 @@ export function FeedScreen({ navigation }: Props) {
     }
     setCommentLikeLoadingById((prev) => ({ ...prev, [commentId]: true }));
     const { error } = isLiked
-      ? await supabase.from("comment_likes").delete().eq("comment_id", commentId).eq("user_id", userId)
-      : await supabase.from("comment_likes").insert({ comment_id: commentId, user_id: userId });
+      ? await runRequestWithPolicy(() =>
+          supabase.from("comment_likes").delete().eq("comment_id", commentId).eq("user_id", userId)
+        )
+      : await runRequestWithPolicy(() =>
+          supabase.from("comment_likes").insert({ comment_id: commentId, user_id: userId })
+        );
     setCommentLikeLoadingById((prev) => ({ ...prev, [commentId]: false }));
     if (error) {
-      Alert.alert(t("alert.commentLikeError"), error.message);
+      Alert.alert(t("alert.commentLikeError"), getRequestErrorMessage(language, error));
       return;
     }
 
@@ -1033,25 +1199,29 @@ export function FeedScreen({ navigation }: Props) {
     const replyTarget = replyToCommentByItem[itemId] ?? null;
     setCommentActionLoadingByItem((prev) => ({ ...prev, [itemId]: true }));
 
-    let insertRes = await supabase.from("comments").insert({
-      item_id: itemId,
-      user_id: userId,
-      content,
-      parent_id: replyTarget?.id ?? null,
-    });
+    let insertRes = await runRequestWithPolicy(() =>
+      supabase.from("comments").insert({
+        item_id: itemId,
+        user_id: userId,
+        content,
+        parent_id: replyTarget?.id ?? null,
+      })
+    );
 
     if (insertRes.error && insertRes.error.message.toLowerCase().includes("parent_id")) {
       const fallbackContent = replyTarget ? `@${replyTarget.user.handle} ${content}` : content;
-      insertRes = await supabase.from("comments").insert({
-        item_id: itemId,
-        user_id: userId,
-        content: fallbackContent,
-      });
+      insertRes = await runRequestWithPolicy(() =>
+        supabase.from("comments").insert({
+          item_id: itemId,
+          user_id: userId,
+          content: fallbackContent,
+        })
+      );
     }
 
     setCommentActionLoadingByItem((prev) => ({ ...prev, [itemId]: false }));
     if (insertRes.error) {
-      Alert.alert(t("alert.commentError"), insertRes.error.message);
+      Alert.alert(t("alert.commentError"), getRequestErrorMessage(language, insertRes.error));
       return;
     }
 
@@ -1080,15 +1250,17 @@ export function FeedScreen({ navigation }: Props) {
     if (!nextContent) return;
 
     setCommentMutatingById((prev) => ({ ...prev, [commentId]: true }));
-    const { error } = await supabase
-      .from("comments")
-      .update({ content: nextContent })
-      .eq("id", commentId)
-      .eq("user_id", userId);
+    const { error } = await runRequestWithPolicy(() =>
+      supabase
+        .from("comments")
+        .update({ content: nextContent })
+        .eq("id", commentId)
+        .eq("user_id", userId)
+    );
     setCommentMutatingById((prev) => ({ ...prev, [commentId]: false }));
 
     if (error) {
-      Alert.alert(t("alert.commentEditError"), error.message);
+      Alert.alert(t("alert.commentEditError"), getRequestErrorMessage(language, error));
       return;
     }
 
@@ -1114,20 +1286,24 @@ export function FeedScreen({ navigation }: Props) {
     }
 
     setCommentMutatingById((prev) => ({ ...prev, [comment.id]: true }));
-    const { error } = await supabase.rpc("delete_comment_with_policy", {
-      p_comment_id: comment.id,
-    });
+    const { error } = await runRequestWithPolicy(() =>
+      supabase.rpc("delete_comment_with_policy", {
+        p_comment_id: comment.id,
+      })
+    );
     setCommentMutatingById((prev) => ({ ...prev, [comment.id]: false }));
     if (error) {
-      Alert.alert(t("alert.commentDeleteError"), error.message);
+      Alert.alert(t("alert.commentDeleteError"), getRequestErrorMessage(language, error));
       return;
     }
 
     await loadCommentsForItem(item.id);
-    const { count } = await supabase
-      .from("comments")
-      .select("id", { count: "exact", head: true })
-      .eq("item_id", item.id);
+    const { count } = await runRequestWithPolicy(() =>
+      supabase
+        .from("comments")
+        .select("id", { count: "exact", head: true })
+        .eq("item_id", item.id)
+    );
     setItems((prevItems) =>
       prevItems.map((entry) =>
         entry.id === item.id
@@ -1180,9 +1356,9 @@ export function FeedScreen({ navigation }: Props) {
   return (
     <View style={styles.container}>
       <View style={styles.header}>
-        <Image
+        <ExpoImage
           accessibilityLabel={t("feed.title")}
-          resizeMode="contain"
+          contentFit="contain"
           source={resolvedTheme === "dark" ? LOGO_DARK : LOGO_LIGHT}
           style={styles.headerLogo}
         />
@@ -1235,13 +1411,18 @@ export function FeedScreen({ navigation }: Props) {
       <FlatList
         contentContainerStyle={styles.listContent}
         data={items}
+        initialNumToRender={4}
         keyExtractor={(item) => item.id}
         ListFooterComponent={loadingMore ? <ActivityIndicator style={styles.loader} /> : null}
         ListEmptyComponent={<Text style={styles.emptyText}>{t("feed.emptyItems")}</Text>}
+        maxToRenderPerBatch={4}
         onEndReached={loadMore}
         onEndReachedThreshold={0.4}
+        removeClippedSubviews
         refreshControl={<RefreshControl onRefresh={onRefresh} refreshing={refreshing} />}
         style={styles.list}
+        updateCellsBatchingPeriod={50}
+        windowSize={5}
         renderItem={({ item }) => {
           const isExpanded = expandedItemId === item.id;
           const sameHandle =
@@ -1262,7 +1443,12 @@ export function FeedScreen({ navigation }: Props) {
             <View style={styles.cardHeader}>
               <View style={styles.ownerRow}>
                 {item.owner.avatar_url ? (
-                  <Image source={{ uri: item.owner.avatar_url }} style={styles.ownerAvatar} />
+                  <ExpoImage
+                    cachePolicy={IMAGE_CACHE_POLICY}
+                    contentFit="cover"
+                    source={{ uri: item.owner.avatar_url }}
+                    style={styles.ownerAvatar}
+                  />
                 ) : (
                   <View style={styles.ownerAvatarFallback}>
                     <Text style={styles.ownerAvatarFallbackText}>
@@ -1325,7 +1511,12 @@ export function FeedScreen({ navigation }: Props) {
                         { width: cardImageWidthById[item.id] ?? 320 },
                       ]}
                     >
-                      <Image source={{ uri }} style={styles.cardImage} />
+                      <ExpoImage
+                        cachePolicy={IMAGE_CACHE_POLICY}
+                        contentFit="cover"
+                        source={{ uri }}
+                        style={styles.cardImage}
+                      />
                     </Pressable>
                   ))}
                 </ScrollView>
@@ -1666,7 +1857,12 @@ export function FeedScreen({ navigation }: Props) {
           </Pressable>
           {viewerImageUri ? (
             <Pressable onPress={closeImageViewer} style={styles.viewerImageWrap}>
-              <Image resizeMode="contain" source={{ uri: viewerImageUri }} style={styles.viewerImage} />
+              <ExpoImage
+                cachePolicy={IMAGE_CACHE_POLICY}
+                contentFit="contain"
+                source={{ uri: viewerImageUri }}
+                style={styles.viewerImage}
+              />
             </Pressable>
           ) : null}
         </View>
@@ -1744,7 +1940,12 @@ export function FeedScreen({ navigation }: Props) {
                 >
                   <View style={styles.shareFollowerAvatarWrap}>
                     {item.avatar_url ? (
-                      <Image source={{ uri: item.avatar_url }} style={styles.shareFollowerAvatar} />
+                      <ExpoImage
+                        cachePolicy={IMAGE_CACHE_POLICY}
+                        contentFit="cover"
+                        source={{ uri: item.avatar_url }}
+                        style={styles.shareFollowerAvatar}
+                      />
                     ) : (
                       <Text style={styles.shareFollowerAvatarText}>
                         {(item.display_name ?? item.handle).slice(0, 1).toUpperCase()}

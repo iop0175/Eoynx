@@ -3,7 +3,7 @@
 import * as React from "react";
 import Link from "next/link";
 import Image from "next/image";
-import { ChevronLeft, ChevronRight, Heart, MessageCircle, Share2, Bookmark, ChevronDown, ChevronUp, Send, Trash2, Flag, MoreHorizontal } from "lucide-react";
+import { ChevronLeft, ChevronRight, Heart, MessageCircle, Share2, Bookmark, ChevronDown, ChevronUp, Send, Flag, MoreHorizontal } from "lucide-react";
 import { likeItem, unlikeItem, bookmarkItem, unbookmarkItem } from "@/app/actions/social";
 import { addComment, deleteComment, likeComment, unlikeComment, updateComment } from "@/app/actions/comments";
 import { ReportModal } from "@/components/ui/report-modal";
@@ -47,6 +47,9 @@ type FeedCardProps = {
   initialCommentCount?: number;
   isLoggedIn?: boolean;
   currentUserId?: string;
+  imagePriority?: boolean;
+  imageSizes?: string;
+  disablePrefetchLinks?: boolean;
 };
 
 export function FeedCard({ 
@@ -58,6 +61,9 @@ export function FeedCard({
   initialCommentCount = 0,
   isLoggedIn = false,
   currentUserId,
+  imagePriority = false,
+  imageSizes = "(max-width: 768px) 100vw, 768px",
+  disablePrefetchLinks = false,
 }: FeedCardProps) {
   const [currentIndex, setCurrentIndex] = React.useState(0);
   const [isLiked, setIsLiked] = React.useState(initialLiked);
@@ -169,6 +175,12 @@ export function FeedCard({
   const handleShare = (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
+
+    if (!isLoggedIn) {
+      window.location.href = "/auth";
+      return;
+    }
+
     setShowShareModal(true);
   };
 
@@ -368,7 +380,7 @@ export function FeedCard({
     <div className="overflow-hidden rounded-2xl border border-neutral-200 bg-white dark:border-neutral-800 dark:bg-neutral-950">
       {/* User header */}
       <div className="flex items-center justify-between px-4 py-3">
-        <Link href={`/u/${item.owner.handle}`} className="flex items-center gap-2">
+        <Link href={`/u/${item.owner.handle}`} prefetch={!disablePrefetchLinks} className="flex items-center gap-2">
           <Avatar
             src={item.owner.avatar_url}
             alt={item.owner.display_name ?? item.owner.handle}
@@ -380,6 +392,7 @@ export function FeedCard({
         <div className="flex items-center gap-2">
           <Link 
             href={`/u/${item.owner.handle}`}
+            prefetch={!disablePrefetchLinks}
             className="rounded-full border border-neutral-200 px-3 py-1 text-xs font-medium hover:bg-neutral-50 dark:border-neutral-700 dark:hover:bg-neutral-900"
           >
             View Profile
@@ -426,9 +439,10 @@ export function FeedCard({
               src={images[currentIndex]}
               alt={item.title}
               fill
-              loading="lazy"
+              priority={imagePriority}
+              fetchPriority={imagePriority ? "high" : "auto"}
               className="object-cover"
-              sizes="(max-width: 768px) 100vw, 768px"
+              sizes={imageSizes}
             />
           ) : (
             <div className="flex h-full w-full items-center justify-center">
@@ -532,6 +546,7 @@ export function FeedCard({
                 <div key={comment.id} className="flex items-start gap-2">
                   <Link
                     href={`/u/${comment.user.handle}`}
+                    prefetch={!disablePrefetchLinks}
                     className="shrink-0 text-xs font-medium hover:underline"
                   >
                     {comment.user.display_name ?? comment.user.handle}
@@ -651,7 +666,7 @@ export function FeedCard({
                 {topLevelComments.map((comment) => (
                   <div key={comment.id} className="rounded-xl border border-neutral-200 bg-neutral-50 p-3 dark:border-neutral-800 dark:bg-neutral-900">
                     <div className="flex items-center justify-between gap-2">
-                      <Link href={`/u/${comment.user.handle}`} className="text-xs font-semibold hover:underline">
+                      <Link href={`/u/${comment.user.handle}`} prefetch={!disablePrefetchLinks} className="text-xs font-semibold hover:underline">
                         @{comment.user.handle}
                       </Link>
                       <span className="text-[10px] text-neutral-400">{formatTime(comment.created_at)}</span>
@@ -735,7 +750,7 @@ export function FeedCard({
                           <div key={reply.id} className="rounded-lg border border-neutral-200 bg-neutral-100 p-2 dark:border-neutral-800 dark:bg-black/50">
                             <div className="mb-1 flex items-center gap-1 text-[10px] text-neutral-500">
                               <span>↳</span>
-                              <Link href={`/u/${reply.user.handle}`} className="font-semibold hover:underline">@{reply.user.handle}</Link>
+                              <Link href={`/u/${reply.user.handle}`} prefetch={!disablePrefetchLinks} className="font-semibold hover:underline">@{reply.user.handle}</Link>
                               <span className="ml-auto">{formatTime(reply.created_at)}</span>
                             </div>
 

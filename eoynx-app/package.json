@@ -6,7 +6,15 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "analyze": "set ANALYZE=true&& npm run build",
+    "start:prod:3001": "next start -p 3001",
+    "lh:search": "node scripts/lighthouse-run.mjs http://localhost:3000/search?q=PERF lh-search-stable.json",
+    "lh:collection": "node scripts/lighthouse-run.mjs http://localhost:3000/c/f20b3159-419c-4d83-b957-d52783c369cd lh-collection-stable.json",
+    "lh:search:prod": "node scripts/lighthouse-run.mjs http://localhost:3001/search?q=PERF lh-search-prod.json",
+    "lh:collection:prod": "node scripts/lighthouse-run.mjs http://localhost:3001/c/f20b3159-419c-4d83-b957-d52783c369cd lh-collection-prod.json",
+    "dm:backfill-encrypted-keys": "node scripts/backfill-dm-encrypted-keys.mjs",
+    "qa:social-regression": "node scripts/social-regression-check.mjs"
   },
   "dependencies": {
     "@supabase/ssr": "^0.9.0",
